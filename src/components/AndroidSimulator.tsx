@@ -26,7 +26,15 @@ import {
   Lock,
   Sun,
   Moon,
-  Laptop
+  Laptop,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  History,
+  Sliders,
+  Disc,
+  Flame,
+  ArrowRight
 } from 'lucide-react';
 import {
   formatBytes,
@@ -87,18 +95,194 @@ const SAMPLE_TRACKS: Track[] = [
   }
 ];
 
+type SimTab = 'listen' | 'browse' | 'radio' | 'library' | 'search';
+
+interface SimHistoryEntry {
+  tab: SimTab;
+  query?: string;
+  genre?: string;
+}
+
 export const AndroidSimulator: React.FC = () => {
-  const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [currentTime, setCurrentTime] = useState(42);
+  // Navigation History Stack with Session Persistence
+  const [historyStack, setHistoryStack] = useState<SimHistoryEntry[]>(() => {
+    try {
+      const saved = sessionStorage.getItem('sim_history_stack');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [{ tab: 'listen', query: '', genre: 'All' }];
+  });
+
+  const [historyIndex, setHistoryIndex] = useState<number>(() => {
+    try {
+      const saved = sessionStorage.getItem('sim_history_idx');
+      if (saved !== null) return parseInt(saved, 10);
+    } catch {}
+    return 0;
+  });
+
+  const [activeTab, setActiveTab] = useState<SimTab>(() => {
+    try {
+      const saved = sessionStorage.getItem('sim_active_tab');
+      if (saved) return saved as SimTab;
+    } catch {}
+    return 'listen';
+  });
+
+  const [searchQuery, setSearchQuery] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem('sim_search_query') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  const [selectedGenre, setSelectedGenre] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem('sim_selected_genre') || 'All';
+    } catch {
+      return 'All';
+    }
+  });
+
+  const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(() => {
+    try {
+      const saved = sessionStorage.getItem('sim_track_idx');
+      if (saved !== null) {
+        const idx = parseInt(saved, 10);
+        if (idx >= 0 && idx < SAMPLE_TRACKS.length) return idx;
+      }
+    } catch {}
+    return 0;
+  });
+
+  const [isPlaying, setIsPlaying] = useState<boolean>(() => {
+    try {
+      const saved = sessionStorage.getItem('sim_is_playing');
+      if (saved !== null) return saved === 'true';
+    } catch {}
+    return true;
+  });
+
+  const [currentTime, setCurrentTime] = useState<number>(() => {
+    try {
+      const saved = sessionStorage.getItem('sim_current_time');
+      if (saved !== null) return parseInt(saved, 10);
+    } catch {}
+    return 42;
+  });
+
   const [screenOff, setScreenOff] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [forcedRefreshRate, setForcedRefreshRate] = useState<number>(120);
   const [selectedUA, setSelectedUA] = useState<'iphone' | 'ipad'>('iphone');
   const [cacheUsedBytes, setCacheUsedBytes] = useState(248 * 1024 * 1024);
-  const [activeTab, setActiveTab] = useState<'listen' | 'browse' | 'radio' | 'library' | 'search'>('listen');
   const [currentTimeString, setCurrentTimeString] = useState('12:15');
-  const [simTheme, setSimTheme] = useState<AppTheme>('dark');
+
+  const [simTheme, setSimTheme] = useState<AppTheme>(() => {
+    try {
+      const saved = sessionStorage.getItem('sim_theme');
+      if (saved === 'dark' || saved === 'light' || saved === 'system') return saved;
+    } catch {}
+    return 'dark';
+  });
+
+  const [safeAreaProtected, setSafeAreaProtected] = useState<boolean>(() => {
+    try {
+      const saved = sessionStorage.getItem('sim_safe_area_protected');
+      if (saved !== null) return saved === 'true';
+    } catch {}
+    return true;
+  });
+
+  const [showNotchGuide, setShowNotchGuide] = useState<boolean>(false);
+
+  // Automatically sync state to sessionStorage so page refreshes or route changes never cause data loss
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('sim_history_stack', JSON.stringify(historyStack));
+      sessionStorage.setItem('sim_history_idx', historyIndex.toString());
+      sessionStorage.setItem('sim_active_tab', activeTab);
+      sessionStorage.setItem('sim_search_query', searchQuery);
+      sessionStorage.setItem('sim_selected_genre', selectedGenre);
+      sessionStorage.setItem('sim_track_idx', currentTrackIndex.toString());
+      sessionStorage.setItem('sim_is_playing', isPlaying.toString());
+      sessionStorage.setItem('sim_current_time', currentTime.toString());
+      sessionStorage.setItem('sim_theme', simTheme);
+      sessionStorage.setItem('sim_safe_area_protected', safeAreaProtected.toString());
+    } catch {}
+  }, [historyStack, historyIndex, activeTab, searchQuery, selectedGenre, currentTrackIndex, isPlaying, currentTime, simTheme, safeAreaProtected]);
+
+  // Navigate to a new screen inside the simulator, appending to history stack
+  const navigateTo = (tab: SimTab, query?: string, genre?: string) => {
+    const nextQuery = query !== undefined ? query : searchQuery;
+    const nextGenre = genre !== undefined ? genre : selectedGenre;
+
+    if (tab === activeTab && nextQuery === searchQuery && nextGenre === selectedGenre) {
+      return;
+    }
+
+    setActiveTab(tab);
+    if (query !== undefined) setSearchQuery(query);
+    if (genre !== undefined) setSelectedGenre(genre);
+
+    const newEntry: SimHistoryEntry = { tab, query: nextQuery, genre: nextGenre };
+    const newStack = [...historyStack.slice(0, historyIndex + 1), newEntry];
+    setHistoryStack(newStack);
+    setHistoryIndex(newStack.length - 1);
+  };
+
+  // Back in simulated history stack (mirrors Android back-stack or browser history)
+  const handleGoBack = () => {
+    if (historyIndex > 0) {
+      const prevIdx = historyIndex - 1;
+      const target = historyStack[prevIdx];
+      setHistoryIndex(prevIdx);
+      setActiveTab(target.tab);
+      if (target.query !== undefined) setSearchQuery(target.query);
+      if (target.genre !== undefined) setSelectedGenre(target.genre);
+    }
+  };
+
+  // Forward in simulated history stack
+  const handleGoForward = () => {
+    if (historyIndex < historyStack.length - 1) {
+      const nextIdx = historyIndex + 1;
+      const target = historyStack[nextIdx];
+      setHistoryIndex(nextIdx);
+      setActiveTab(target.tab);
+      if (target.query !== undefined) setSearchQuery(target.query);
+      if (target.genre !== undefined) setSelectedGenre(target.genre);
+    }
+  };
+
+  const canGoBack = historyIndex > 0;
+  const canGoForward = historyIndex < historyStack.length - 1;
+
+  const handleResetSimulatorState = () => {
+    try {
+      sessionStorage.removeItem('sim_history_stack');
+      sessionStorage.removeItem('sim_history_idx');
+      sessionStorage.removeItem('sim_active_tab');
+      sessionStorage.removeItem('sim_search_query');
+      sessionStorage.removeItem('sim_selected_genre');
+      sessionStorage.removeItem('sim_track_idx');
+      sessionStorage.removeItem('sim_current_time');
+      sessionStorage.removeItem('sim_safe_area_protected');
+    } catch {}
+    setHistoryStack([{ tab: 'listen', query: '', genre: 'All' }]);
+    setHistoryIndex(0);
+    setActiveTab('listen');
+    setSearchQuery('');
+    setSelectedGenre('All');
+    setCurrentTrackIndex(0);
+    setCurrentTime(0);
+    setSafeAreaProtected(true);
+    setShowNotchGuide(false);
+  };
 
   const effectiveTheme = resolveEffectiveTheme(simTheme, true);
   const isLight = effectiveTheme === 'light';
@@ -199,6 +383,25 @@ export const AndroidSimulator: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* Visual Safe Area & Notch Inset Boundary Guide */}
+            {showNotchGuide && (
+              <div className="absolute top-0 inset-x-0 h-11 pointer-events-none z-50 border-b-2 border-dashed border-rose-500 bg-rose-500/10 flex items-end justify-between px-3 pb-0.5">
+                <span className="text-[8px] font-mono font-bold text-rose-400 bg-black/80 px-1 rounded shadow">
+                  env(safe-area-inset-top): 44px
+                </span>
+                <span className="text-[8px] font-mono font-bold text-cyan-400 bg-black/80 px-1 rounded shadow">
+                  Cutout Inset Cleared
+                </span>
+              </div>
+            )}
+
+            {/* Overlap Warning Badge when Safe Area is disabled to simulate defect */}
+            {!safeAreaProtected && !screenOff && (
+              <div className="absolute top-12 left-1/2 -translate-x-1/2 z-50 bg-rose-600/95 text-white text-[9px] font-bold px-2 py-0.5 rounded-full shadow-lg border border-white/20 pointer-events-none flex items-center space-x-1 animate-pulse">
+                <span>⚠️ Notch Overlap Active (Defect State)</span>
+              </div>
+            )}
 
             {/* Notification Drawer Shade (Pull down or toggle) */}
             {notificationOpen && (
@@ -324,105 +527,465 @@ export const AndroidSimulator: React.FC = () => {
             ) : (
               /* SCREEN ON: Apple Music Beta iOS Mobile WebView Simulator */
               <div
-                className={`flex-1 flex flex-col overflow-hidden transition-colors duration-300 ${
+                className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${
                   isLight ? 'bg-white' : 'bg-black'
-                }`}
+                } ${!safeAreaProtected ? '-mt-11' : ''}`}
               >
-                {/* Header Bar */}
+                {/* Header Bar with Back/Forward History Controls */}
                 <div
-                  className={`px-5 pt-1 pb-3 flex items-center justify-between border-b backdrop-blur-md transition-colors ${
+                  className={`px-4 pt-1.5 pb-2.5 flex items-center justify-between border-b backdrop-blur-md transition-colors ${
                     isLight
                       ? 'bg-white/90 border-neutral-200'
                       : 'bg-black/60 border-white/5'
                   }`}
                 >
-                  <div>
-                    <span className="text-[11px] font-bold tracking-wider uppercase text-rose-500 flex items-center space-x-1">
-                      <Music2 className="w-3 h-3 inline mr-1" />
-                      Apple Music Beta
-                    </span>
-                    <h2 className="text-lg font-extrabold tracking-tight capitalize">{activeTab}</h2>
-                  </div>
                   <div className="flex items-center space-x-1.5">
+                    {/* Simulated History Stack Back/Forward Controls */}
+                    <div className="flex items-center space-x-0.5 mr-0.5">
+                      <button
+                        onClick={handleGoBack}
+                        disabled={!canGoBack}
+                        title="Back in history (Preserves inputs & state)"
+                        className={`p-1 rounded-md transition ${
+                          canGoBack
+                            ? isLight
+                              ? 'text-neutral-800 hover:bg-neutral-200 active:scale-90'
+                              : 'text-white hover:bg-white/10 active:scale-90'
+                            : 'text-neutral-500/30 cursor-not-allowed'
+                        }`}
+                        aria-label="Back"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={handleGoForward}
+                        disabled={!canGoForward}
+                        title="Forward in history"
+                        className={`p-1 rounded-md transition ${
+                          canGoForward
+                            ? isLight
+                              ? 'text-neutral-800 hover:bg-neutral-200 active:scale-90'
+                              : 'text-white hover:bg-white/10 active:scale-90'
+                            : 'text-neutral-500/30 cursor-not-allowed'
+                        }`}
+                        aria-label="Forward"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] font-bold tracking-wider uppercase text-rose-500 flex items-center space-x-1">
+                        <Music2 className="w-2.5 h-2.5 inline mr-1" />
+                        Apple Music Beta
+                      </span>
+                      <h2 className="text-sm font-extrabold tracking-tight capitalize leading-none">{activeTab}</h2>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-1">
                     <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] border ${
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono border ${
+                        isLight
+                          ? 'bg-neutral-100 text-neutral-600 border-neutral-300'
+                          : 'bg-neutral-800 text-neutral-400 border-white/5'
+                      }`}
+                      title="History stack depth"
+                    >
+                      Step {historyIndex + 1}/{historyStack.length}
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[9px] border ${
                         isLight
                           ? 'bg-neutral-100 text-neutral-700 border-neutral-300'
                           : 'bg-neutral-800 text-neutral-300 border-white/5'
                       }`}
                     >
-                      {effectiveTheme === 'light' ? 'Light' : 'Dark'} Mode
+                      {effectiveTheme === 'light' ? 'Light' : 'Dark'}
                     </span>
                   </div>
                 </div>
 
-                {/* WebView Content Area */}
+                {/* WebView Content Area with Persistent State */}
                 <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 scrollbar-none">
-                  {/* Featured Hero Banner */}
-                  <div className="relative rounded-2xl overflow-hidden border border-white/10 shadow-lg group">
-                    <img
-                      src={currentTrack.cover}
-                      alt={currentTrack.album}
-                      className="w-full h-44 object-cover object-center filter brightness-95 transition duration-500 group-hover:scale-105"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent p-4 flex flex-col justify-end text-white">
-                      <span className="text-[10px] font-bold text-rose-400 uppercase tracking-widest">
-                        {currentTrack.genre}
-                      </span>
-                      <h3 className="text-base font-bold text-white truncate">{currentTrack.title}</h3>
-                      <p className="text-xs text-neutral-200">{currentTrack.artist}</p>
-                    </div>
-                  </div>
+                  {/* TAB 1: LISTEN NOW */}
+                  {activeTab === 'listen' && (
+                    <div className="space-y-4">
+                      {/* Featured Hero Banner */}
+                      <div className="relative rounded-2xl overflow-hidden border border-white/10 shadow-lg group">
+                        <img
+                          src={currentTrack.cover}
+                          alt={currentTrack.album}
+                          className="w-full h-40 object-cover object-center filter brightness-95 transition duration-500 group-hover:scale-105"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-3.5 flex flex-col justify-end text-white">
+                          <span className="text-[10px] font-bold text-rose-400 uppercase tracking-widest">
+                            {currentTrack.genre} • Now Playing
+                          </span>
+                          <h3 className="text-sm font-bold text-white truncate">{currentTrack.title}</h3>
+                          <p className="text-[11px] text-neutral-200">{currentTrack.artist}</p>
+                        </div>
+                      </div>
 
-                  {/* Recently Played / Popular Row */}
-                  <div>
-                    <h4 className={`text-xs font-bold uppercase tracking-wider mb-2 ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>
-                      Featured Tracks
-                    </h4>
-                    <div className="space-y-1.5">
-                      {SAMPLE_TRACKS.map((t, idx) => {
-                        const isCurrent = idx === currentTrackIndex;
-                        return (
+                      {/* Featured Tracks */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>
+                            Featured Tracks
+                          </h4>
+                          <span className="text-[10px] text-rose-500 font-semibold cursor-pointer" onClick={() => navigateTo('browse')}>
+                            See All →
+                          </span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {SAMPLE_TRACKS.map((t, idx) => {
+                            const isCurrent = idx === currentTrackIndex;
+                            return (
+                              <div
+                                key={t.id}
+                                onClick={() => {
+                                  setCurrentTrackIndex(idx);
+                                  setCurrentTime(0);
+                                  setIsPlaying(true);
+                                }}
+                                className={`flex items-center space-x-3 p-2 rounded-xl cursor-pointer transition active:scale-[0.98] ${
+                                  isCurrent
+                                    ? 'bg-rose-500/15 border border-rose-500/30'
+                                    : isLight
+                                    ? 'bg-neutral-100 hover:bg-neutral-200/80 border border-neutral-200'
+                                    : 'bg-neutral-900/60 hover:bg-neutral-800/80 border border-white/5'
+                                }`}
+                              >
+                                <img src={t.cover} alt={t.title} className="w-10 h-10 rounded-lg object-cover" />
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-xs font-semibold truncate ${isCurrent ? 'text-rose-500 font-bold' : isLight ? 'text-neutral-900' : 'text-white'}`}>
+                                    {t.title}
+                                  </p>
+                                  <p className={`text-[10px] truncate ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>
+                                    {t.artist}
+                                  </p>
+                                </div>
+                                {isCurrent && isPlaying ? (
+                                  <div className="flex items-center space-x-0.5">
+                                    <span className="w-1 h-3 bg-rose-500 animate-pulse rounded-full"></span>
+                                    <span className="w-1 h-4 bg-rose-500 animate-pulse delay-75 rounded-full"></span>
+                                    <span className="w-1 h-2 bg-rose-500 animate-pulse delay-150 rounded-full"></span>
+                                  </div>
+                                ) : (
+                                  <span className={`text-[10px] font-mono ${isLight ? 'text-neutral-400' : 'text-neutral-500'}`}>
+                                    {formatDuration(t.duration)}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 2: BROWSE */}
+                  {activeTab === 'browse' && (
+                    <div className="space-y-4">
+                      {/* Spatial Audio Highlight */}
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-r from-rose-600/20 to-purple-600/20 border border-rose-500/30">
+                        <div className="flex items-center space-x-1.5 text-rose-500 text-xs font-bold mb-1">
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>Spatial Audio with Dolby Atmos</span>
+                        </div>
+                        <p className={`text-[11px] ${isLight ? 'text-neutral-600' : 'text-neutral-300'}`}>
+                          Optimized with native 120Hz refresh rate and custom audio buffer.
+                        </p>
+                      </div>
+
+                      {/* Genre Chips (interactive & preserved) */}
+                      <div>
+                        <h4 className={`text-xs font-bold uppercase tracking-wider mb-2 ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>
+                          Explore by Genre
+                        </h4>
+                        <div className="flex flex-wrap gap-1.5">
+                          {['All', 'R&B / Soul', 'Synthpop', 'Pop Rock', 'Pop'].map((g) => (
+                            <button
+                              key={g}
+                              onClick={() => navigateTo('browse', searchQuery, g)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition ${
+                                selectedGenre === g
+                                  ? 'bg-rose-500 text-white shadow-sm'
+                                  : isLight
+                                  ? 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 border border-neutral-200'
+                                  : 'bg-neutral-900 text-neutral-300 hover:bg-neutral-800 border border-white/5'
+                              }`}
+                            >
+                              {g}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Filtered Track Grid */}
+                      <div className="space-y-1.5">
+                        {SAMPLE_TRACKS.filter((t) => selectedGenre === 'All' || t.genre === selectedGenre).map((t, idx) => (
                           <div
                             key={t.id}
                             onClick={() => {
-                              setCurrentTrackIndex(idx);
-                              setCurrentTime(0);
-                              setIsPlaying(true);
+                              const originalIdx = SAMPLE_TRACKS.findIndex((item) => item.id === t.id);
+                              if (originalIdx !== -1) {
+                                setCurrentTrackIndex(originalIdx);
+                                setCurrentTime(0);
+                                setIsPlaying(true);
+                              }
                             }}
-                            className={`flex items-center space-x-3 p-2 rounded-xl cursor-pointer transition active:scale-[0.98] ${
-                              isCurrent
-                                ? 'bg-rose-500/15 border border-rose-500/30'
-                                : isLight
-                                ? 'bg-neutral-100 hover:bg-neutral-200/80 border border-neutral-200'
-                                : 'bg-neutral-900/60 hover:bg-neutral-800/80 border border-white/5'
+                            className={`flex items-center space-x-3 p-2 rounded-xl cursor-pointer transition ${
+                              isLight ? 'bg-neutral-100 hover:bg-neutral-200/80' : 'bg-neutral-900/60 hover:bg-neutral-800/80'
                             }`}
                           >
-                            <img src={t.cover} alt={t.title} className="w-10 h-10 rounded-lg object-cover" />
+                            <img src={t.cover} alt={t.title} className="w-9 h-9 rounded-lg object-cover" />
                             <div className="flex-1 min-w-0">
-                              <p className={`text-xs font-semibold truncate ${isCurrent ? 'text-rose-500 font-bold' : isLight ? 'text-neutral-900' : 'text-white'}`}>
+                              <p className={`text-xs font-semibold truncate ${isLight ? 'text-neutral-900' : 'text-white'}`}>
                                 {t.title}
                               </p>
                               <p className={`text-[10px] truncate ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>
-                                {t.artist}
+                                {t.artist} • {t.genre}
                               </p>
                             </div>
-                            {isCurrent && isPlaying ? (
-                              <div className="flex items-center space-x-0.5">
-                                <span className="w-1 h-3 bg-rose-500 animate-pulse rounded-full"></span>
-                                <span className="w-1 h-4 bg-rose-500 animate-pulse delay-75 rounded-full"></span>
-                                <span className="w-1 h-2 bg-rose-500 animate-pulse delay-150 rounded-full"></span>
-                              </div>
-                            ) : (
-                              <span className={`text-[10px] font-mono ${isLight ? 'text-neutral-400' : 'text-neutral-500'}`}>
-                                {formatDuration(t.duration)}
-                              </span>
-                            )}
+                            <Play className="w-3.5 h-3.5 text-rose-500" />
                           </div>
-                        );
-                      })}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* TAB 3: RADIO */}
+                  {activeTab === 'radio' && (
+                    <div className="space-y-3">
+                      {/* Live Station 1 */}
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-rose-600 via-rose-700 to-amber-700 text-white shadow-md">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="px-2 py-0.5 rounded-full bg-white/20 text-[9px] font-bold uppercase tracking-wider flex items-center space-x-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                            <span>LIVE BROADCAST</span>
+                          </span>
+                          <span className="text-[10px] font-mono text-white/80">98.4K Listening</span>
+                        </div>
+                        <h3 className="text-base font-black">Apple Music 1</h3>
+                        <p className="text-xs text-white/80">The Zane Lowe Show • Live from LA</p>
+                        <div className="mt-3 flex items-center justify-between pt-2 border-t border-white/20">
+                          <div className="flex items-center space-x-1">
+                            <span className="w-1 h-3 bg-white animate-pulse rounded-full"></span>
+                            <span className="w-1 h-5 bg-white animate-pulse delay-75 rounded-full"></span>
+                            <span className="w-1 h-2 bg-white animate-pulse delay-150 rounded-full"></span>
+                            <span className="w-1 h-4 bg-white animate-pulse delay-100 rounded-full"></span>
+                          </div>
+                          <button
+                            onClick={() => setIsPlaying(true)}
+                            className="px-3 py-1 rounded-full bg-white text-rose-600 font-bold text-xs shadow-sm hover:bg-neutral-100 transition"
+                          >
+                            Tune In
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Station 2 */}
+                      <div className={`p-3 rounded-xl border flex items-center justify-between ${
+                        isLight ? 'bg-neutral-100 border-neutral-200' : 'bg-neutral-900 border-white/5'
+                      }`}>
+                        <div>
+                          <h4 className="text-xs font-bold">Apple Music Hits</h4>
+                          <p className={`text-[10px] ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>80s, 90s & 2000s Essentials</p>
+                        </div>
+                        <Radio className="w-4 h-4 text-rose-500" />
+                      </div>
+
+                      {/* Station 3 */}
+                      <div className={`p-3 rounded-xl border flex items-center justify-between ${
+                        isLight ? 'bg-neutral-100 border-neutral-200' : 'bg-neutral-900 border-white/5'
+                      }`}>
+                        <div>
+                          <h4 className="text-xs font-bold">Apple Music Country</h4>
+                          <p className={`text-[10px] ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>Nashville Today & Hits</p>
+                        </div>
+                        <Radio className="w-4 h-4 text-rose-500" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 4: LIBRARY */}
+                  {activeTab === 'library' && (
+                    <div className="space-y-3">
+                      <div className={`rounded-xl divide-y border overflow-hidden ${
+                        isLight ? 'bg-neutral-50 border-neutral-200 divide-neutral-200' : 'bg-neutral-900/60 border-white/5 divide-white/5'
+                      }`}>
+                        <div className="p-3 flex items-center justify-between text-xs cursor-pointer hover:bg-rose-500/5">
+                          <span className="font-semibold">Playlists</span>
+                          <span className={`text-[10px] ${isLight ? 'text-neutral-400' : 'text-neutral-500'}`}>12</span>
+                        </div>
+                        <div className="p-3 flex items-center justify-between text-xs cursor-pointer hover:bg-rose-500/5">
+                          <span className="font-semibold">Artists</span>
+                          <span className={`text-[10px] ${isLight ? 'text-neutral-400' : 'text-neutral-500'}`}>4</span>
+                        </div>
+                        <div className="p-3 flex items-center justify-between text-xs cursor-pointer hover:bg-rose-500/5">
+                          <span className="font-semibold">Albums</span>
+                          <span className={`text-[10px] ${isLight ? 'text-neutral-400' : 'text-neutral-500'}`}>4</span>
+                        </div>
+                        <div className="p-3 flex items-center justify-between text-xs cursor-pointer hover:bg-rose-500/5">
+                          <span className="font-semibold text-rose-500">Downloaded (Offline)</span>
+                          <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">4 Songs • 500MB Cache</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className={`text-xs font-bold uppercase tracking-wider mb-2 ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>
+                          Cached Offline Songs
+                        </h4>
+                        <div className="space-y-1.5">
+                          {SAMPLE_TRACKS.map((t) => (
+                            <div
+                              key={t.id}
+                              className={`flex items-center space-x-2.5 p-2 rounded-xl text-xs ${
+                                isLight ? 'bg-neutral-100 text-neutral-800' : 'bg-neutral-900/50 text-white'
+                              }`}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium truncate text-xs">{t.title}</p>
+                                <p className={`text-[10px] truncate ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>{t.artist}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 5: SEARCH (WITH PERSISTENT INPUT AND STATE) */}
+                  {activeTab === 'search' && (
+                    <div className="space-y-3">
+                      {/* Search Bar Input */}
+                      <div className="relative">
+                        <Search className={`w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 ${
+                          isLight ? 'text-neutral-400' : 'text-neutral-500'
+                        }`} />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSearchQuery(val);
+                            // Also update current history step's query so back/forward naturally remembers query
+                            const updated = [...historyStack];
+                            if (updated[historyIndex]) {
+                              updated[historyIndex] = { ...updated[historyIndex], query: val };
+                              setHistoryStack(updated);
+                            }
+                          }}
+                          placeholder="Search artists, songs, lyrics..."
+                          className={`w-full pl-8 pr-8 py-2 rounded-xl text-xs outline-none transition border ${
+                            isLight
+                              ? 'bg-neutral-100 border-neutral-300 text-neutral-900 focus:border-rose-500'
+                              : 'bg-neutral-900 border-white/10 text-white focus:border-rose-500'
+                          }`}
+                        />
+                        {searchQuery && (
+                          <button
+                            onClick={() => setSearchQuery('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Search Suggestions Chips */}
+                      <div>
+                        <span className={`text-[10px] uppercase font-bold tracking-wider block mb-1.5 ${
+                          isLight ? 'text-neutral-400' : 'text-neutral-500'
+                        }`}>
+                          Suggestions
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {['The Weeknd', 'Starboy', 'Olivia', 'Taylor', 'Daft Punk'].map((chip) => (
+                            <button
+                              key={chip}
+                              onClick={() => {
+                                setSearchQuery(chip);
+                                navigateTo('search', chip);
+                              }}
+                              className={`px-2 py-0.5 rounded-full text-[10px] transition ${
+                                searchQuery.toLowerCase() === chip.toLowerCase()
+                                  ? 'bg-rose-500 text-white'
+                                  : isLight
+                                  ? 'bg-neutral-200/80 text-neutral-700 hover:bg-neutral-300'
+                                  : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                              }`}
+                            >
+                              {chip}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Live Filtered Results */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                            isLight ? 'text-neutral-500' : 'text-neutral-400'
+                          }`}>
+                            {searchQuery ? `Results for "${searchQuery}"` : 'All Tracks'}
+                          </span>
+                          <span className="text-[10px] font-mono text-neutral-400">
+                            {SAMPLE_TRACKS.filter((t) =>
+                              t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                              t.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                              t.album.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                              t.genre.toLowerCase().includes(searchQuery.toLowerCase())
+                            ).length} found
+                          </span>
+                        </div>
+
+                        <div className="space-y-1">
+                          {SAMPLE_TRACKS.filter((t) =>
+                            t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            t.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            t.album.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            t.genre.toLowerCase().includes(searchQuery.toLowerCase())
+                          ).map((t) => {
+                            const originalIdx = SAMPLE_TRACKS.findIndex((item) => item.id === t.id);
+                            const isCurrent = originalIdx === currentTrackIndex;
+                            return (
+                              <div
+                                key={t.id}
+                                onClick={() => {
+                                  if (originalIdx !== -1) {
+                                    setCurrentTrackIndex(originalIdx);
+                                    setCurrentTime(0);
+                                    setIsPlaying(true);
+                                  }
+                                }}
+                                className={`flex items-center space-x-2.5 p-2 rounded-xl cursor-pointer transition ${
+                                  isCurrent
+                                    ? 'bg-rose-500/15 border border-rose-500/30'
+                                    : isLight
+                                    ? 'bg-neutral-100 hover:bg-neutral-200/80'
+                                    : 'bg-neutral-900/60 hover:bg-neutral-800/80'
+                                }`}
+                              >
+                                <img src={t.cover} alt={t.title} className="w-8 h-8 rounded-lg object-cover" />
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-xs font-semibold truncate ${isCurrent ? 'text-rose-500' : isLight ? 'text-neutral-900' : 'text-white'}`}>
+                                    {t.title}
+                                  </p>
+                                  <p className={`text-[10px] truncate ${isLight ? 'text-neutral-500' : 'text-neutral-400'}`}>
+                                    {t.artist}
+                                  </p>
+                                </div>
+                                <Play className="w-3.5 h-3.5 text-rose-500" />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Persistent iOS Style Mini Player */}
@@ -479,35 +1042,35 @@ export const AndroidSimulator: React.FC = () => {
                   }`}
                 >
                   <button
-                    onClick={() => setActiveTab('listen')}
+                    onClick={() => navigateTo('listen')}
                     className={`flex flex-col items-center space-y-0.5 ${activeTab === 'listen' ? 'text-rose-500' : isLight ? 'hover:text-black' : 'hover:text-white'}`}
                   >
                     <Play className="w-4 h-4 fill-current" />
                     <span>Listen Now</span>
                   </button>
                   <button
-                    onClick={() => setActiveTab('browse')}
+                    onClick={() => navigateTo('browse')}
                     className={`flex flex-col items-center space-y-0.5 ${activeTab === 'browse' ? 'text-rose-500' : isLight ? 'hover:text-black' : 'hover:text-white'}`}
                   >
                     <Compass className="w-4 h-4" />
                     <span>Browse</span>
                   </button>
                   <button
-                    onClick={() => setActiveTab('radio')}
+                    onClick={() => navigateTo('radio')}
                     className={`flex flex-col items-center space-y-0.5 ${activeTab === 'radio' ? 'text-rose-500' : isLight ? 'hover:text-black' : 'hover:text-white'}`}
                   >
                     <Radio className="w-4 h-4" />
                     <span>Radio</span>
                   </button>
                   <button
-                    onClick={() => setActiveTab('library')}
+                    onClick={() => navigateTo('library')}
                     className={`flex flex-col items-center space-y-0.5 ${activeTab === 'library' ? 'text-rose-500' : isLight ? 'hover:text-black' : 'hover:text-white'}`}
                   >
                     <Library className="w-4 h-4" />
                     <span>Library</span>
                   </button>
                   <button
-                    onClick={() => setActiveTab('search')}
+                    onClick={() => navigateTo('search')}
                     className={`flex flex-col items-center space-y-0.5 ${activeTab === 'search' ? 'text-rose-500' : isLight ? 'hover:text-black' : 'hover:text-white'}`}
                   >
                     <Search className="w-4 h-4" />
@@ -517,9 +1080,17 @@ export const AndroidSimulator: React.FC = () => {
               </div>
             )}
 
-            {/* Android 14 Transparent Navigation Bar Pill */}
-            <div className="w-full h-4 bg-transparent flex items-center justify-center">
-              <div className={`w-28 h-1 rounded-full ${isLight ? 'bg-black/40' : 'bg-white/40'}`}></div>
+            {/* Android 14 Transparent Navigation Bar Pill (Interactive Back Gesture) */}
+            <div
+              onClick={canGoBack ? handleGoBack : undefined}
+              title={canGoBack ? 'Android Back Gesture: Tap to navigate back in history without losing data' : 'Android Navigation Bar'}
+              className={`w-full h-4 bg-transparent flex items-center justify-center ${canGoBack ? 'cursor-pointer hover:opacity-80' : ''}`}
+            >
+              <div className={`w-28 h-1 rounded-full transition-all ${
+                canGoBack
+                  ? isLight ? 'bg-rose-500/80 hover:h-1.5' : 'bg-rose-500/80 hover:h-1.5'
+                  : isLight ? 'bg-black/40' : 'bg-white/40'
+              }`}></div>
             </div>
 
           </div>
@@ -581,11 +1152,159 @@ export const AndroidSimulator: React.FC = () => {
             <Bell className="w-3.5 h-3.5" />
             <span>{notificationOpen ? 'Hide Shade' : 'Media Shade'}</span>
           </button>
+
+          {/* Safe Area & Notch Simulator Toggles */}
+          <button
+            onClick={() => setSafeAreaProtected(!safeAreaProtected)}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+              safeAreaProtected
+                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/25'
+                : 'bg-rose-500 text-white border-rose-400 animate-pulse'
+            }`}
+            title="Toggle Safe Area Inset Protection to simulate or resolve status bar & notch overlap"
+          >
+            <Shield className="w-3.5 h-3.5" />
+            <span>{safeAreaProtected ? 'Safe Area: Protected' : 'Defect: Notch Overlap'}</span>
+          </button>
+
+          <button
+            onClick={() => setShowNotchGuide(!showNotchGuide)}
+            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition ${
+              showNotchGuide
+                ? 'bg-cyan-500/20 text-cyan-400 border-cyan-400'
+                : 'bg-neutral-900 text-neutral-400 border-neutral-700 hover:text-white'
+            }`}
+            title="Show safe area and camera punch-hole boundary guides"
+          >
+            <span>{showNotchGuide ? 'Hide Guides' : 'Notch Guides'}</span>
+          </button>
+
+          <button
+            onClick={handleResetSimulatorState}
+            title="Clear saved draft and reset navigation back stack"
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-neutral-700 bg-neutral-900 text-neutral-400 hover:text-white hover:border-neutral-500 transition"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Reset State</span>
+          </button>
         </div>
       </div>
 
       {/* Right Column: Hardware Performance & Core Requirements Telemetry Panel */}
       <div className="lg:col-span-6 space-y-4">
+        {/* Navigation State Preservation Monitor */}
+        <div className="p-4 rounded-2xl bg-neutral-900/80 border border-emerald-500/30 shadow-md bg-gradient-to-br from-emerald-950/20 to-neutral-900">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                  <span>Navigation State Persistence Engine</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold">
+                    ZERO DATA LOSS
+                  </span>
+                </h3>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Protects screen unmounting via Keep-Alive display caching, Session Storage &amp; <code className="text-emerald-400">onSaveInstanceState</code>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-neutral-500 block text-[10px] uppercase font-mono">History Stack</span>
+              <span className="text-white font-semibold font-mono text-xs block mt-0.5">
+                Step {historyIndex + 1} of {historyStack.length}
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-neutral-500 block text-[10px] uppercase font-mono">Input Draft</span>
+              <span className="text-emerald-400 font-semibold font-mono text-xs block mt-0.5 truncate">
+                {searchQuery ? `"${searchQuery}"` : 'Cached & Safe'}
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-neutral-500 block text-[10px] uppercase font-mono">Back Gestures</span>
+              <span className="text-white font-semibold font-mono text-xs block mt-0.5">
+                {canGoBack ? 'Active (Pop)' : 'At Root'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile Status Bar & Notch Overlap Resolution Architecture */}
+        <div className={`p-4 rounded-2xl border shadow-md transition-all ${
+          safeAreaProtected
+            ? 'bg-neutral-900/80 border-emerald-500/30 bg-gradient-to-br from-emerald-950/20 to-neutral-900'
+            : 'bg-neutral-900/80 border-rose-500/40 bg-gradient-to-br from-rose-950/20 to-neutral-900'
+        }`}>
+          <div className="flex items-start justify-between">
+            <div className="flex items-center space-x-2.5">
+              <div className={`p-2 rounded-xl border ${
+                safeAreaProtected
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+              }`}>
+                <Smartphone className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                  <span>Mobile Status Bar &amp; Notch Overlap Protection</span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                    safeAreaProtected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                  }`}>
+                    {safeAreaProtected ? 'SAFE AREA ACTIVE (44PX)' : 'DEFECT SIMULATED'}
+                  </span>
+                </h3>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Guarantees top headers clear physical camera cutout, clock, and battery using <code className="text-rose-400">ViewCompat.setOnApplyWindowInsetsListener</code> &amp; <code className="text-rose-400">env(safe-area-inset-top)</code>
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setSafeAreaProtected(!safeAreaProtected)}
+              className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition ${
+                safeAreaProtected
+                  ? 'bg-neutral-800 text-neutral-300 border-neutral-700 hover:text-white'
+                  : 'bg-rose-600 text-white border-rose-500 hover:bg-rose-700'
+              }`}
+            >
+              {safeAreaProtected ? 'Simulate Defect' : 'Apply Safe Insets'}
+            </button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-neutral-500 block text-[10px] uppercase font-mono">HTML Viewport</span>
+              <span className="text-emerald-400 font-semibold font-mono text-xs block mt-0.5 truncate">
+                viewport-fit=cover
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-neutral-500 block text-[10px] uppercase font-mono">Cutout Clearance</span>
+              <span className="text-white font-semibold font-mono text-xs block mt-0.5">
+                {safeAreaProtected ? 'Cleared (0px overlap)' : 'Overlapping'}
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-neutral-500 block text-[10px] uppercase font-mono">CSS Inset Var</span>
+              <span className="text-rose-400 font-semibold font-mono text-xs block mt-0.5">
+                --safe-area-top: 44px
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-neutral-500 block text-[10px] uppercase font-mono">System Insets</span>
+              <span className="text-white font-semibold font-mono text-xs block mt-0.5">
+                WindowInsetsCompat
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Requirement 1: 120Hz & Hardware Acceleration */}
         <div className="p-4 rounded-2xl bg-neutral-900/80 border border-neutral-800 shadow-md">
           <div className="flex items-start justify-between">

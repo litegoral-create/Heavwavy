@@ -130,6 +130,78 @@ export const ArchitectureGuide: React.FC = () => {
           <p className="text-white">git push origin v1.0.0</p>
         </div>
       </div>
+
+      {/* Pillar 6: Zero Data Loss & Navigation State Preservation */}
+      <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-950/30 to-neutral-900 border border-emerald-500/30 space-y-4">
+        <div className="flex items-center space-x-2 text-emerald-400 font-bold text-sm">
+          <CheckCircle className="w-4 h-4" />
+          <span>6. Zero Data Loss &amp; Seamless Back/Forward Navigation Architecture</span>
+        </div>
+        <p className="text-xs text-neutral-400 leading-relaxed">
+          Navigating backward/forward between screens frequently results in accidental state loss when components unmount and garbage collection clears input memory.
+          This codebase eliminates navigation state loss through a dual-layer strategy:
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div className="p-3.5 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-2">
+            <h4 className="font-bold text-emerald-400 flex items-center space-x-1.5">
+              <span>Frontend React Architecture</span>
+            </h4>
+            <ul className="space-y-1.5 text-neutral-400 list-disc list-inside text-[11px] leading-relaxed">
+              <li><strong>Keep-Alive Display Caching:</strong> Swapped conditional DOM unmounting with CSS <code>hidden</code> display toggling so audio playback, scroll positions, and interactive states remain alive.</li>
+              <li><strong>Browser Popstate / Hash Navigation:</strong> Wired <code>window.history.pushState</code> and <code>hashchange</code> so browser Back/Forward buttons navigate seamlessly.</li>
+              <li><strong>Session Storage Draft Cache:</strong> Synchronizes active search queries, selected files, and track history across reloads.</li>
+            </ul>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-2">
+            <h4 className="font-bold text-emerald-400 flex items-center space-x-1.5">
+              <span>Native Android Architecture</span>
+            </h4>
+            <ul className="space-y-1.5 text-neutral-400 list-disc list-inside text-[11px] leading-relaxed">
+              <li><strong><code>onSaveInstanceState</code> Bundle Sync:</strong> Invokes <code>webView.saveState(outState)</code> to persist page navigation history, input forms, and DOM state against Activity recreation or memory pressure.</li>
+              <li><strong><code>webView.restoreState</code>:</strong> Restores full browsing history immediately upon Activity launch.</li>
+              <li><strong>Back Stack Dispatcher:</strong> Overrides <code>OnBackPressedCallback</code> to verify <code>webView.canGoBack()</code> before exiting the task.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Pillar 7: Safe Area & Status Bar / Notch Overlap Architecture */}
+      <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-950/30 to-neutral-900 border border-indigo-500/30 space-y-4">
+        <div className="flex items-center space-x-2 text-indigo-400 font-bold text-sm">
+          <Smartphone className="w-4 h-4" />
+          <span>7. Mobile Status Bar &amp; Camera Notch Overlap Architecture</span>
+        </div>
+        <p className="text-xs text-neutral-400 leading-relaxed">
+          In edge-to-edge mobile apps (<code>WindowCompat.setDecorFitsSystemWindows(false)</code>), WebView contents naturally bleed behind
+          the system status bar (clock, battery indicator) and hardware display cutouts (camera punch-hole / notch) unless hardware insets
+          are bridged into the rendering pipeline. This codebase resolves notch overlap via a triple-tier safe-area protocol:
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-1.5">
+            <h4 className="font-bold text-indigo-400">1. HTML Viewport-Fit</h4>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              <code>viewport-fit=cover</code> in <code>index.html</code> signals to mobile browsers and WebViews that the document can draw into edge-to-edge margins, enabling CSS <code>env(safe-area-inset-top)</code>.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-1.5">
+            <h4 className="font-bold text-indigo-400">2. Native Inset Listener</h4>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              <code>ViewCompat.setOnApplyWindowInsetsListener</code> queries <code>systemBars()</code> and <code>displayCutout()</code>, dynamically calculating DP offsets based on display density.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-1.5">
+            <h4 className="font-bold text-indigo-400">3. Runtime CSS Variable Bridge</h4>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              Injects <code>--safe-area-top</code> and <code>--safe-area-bottom</code> into <code>document.documentElement.style</code> on every window inset change and page finish, preventing header clipping.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

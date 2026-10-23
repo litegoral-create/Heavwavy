@@ -15,10 +15,38 @@ import { PROJECT_FILES, ProjectFileItem } from '../data/projectFiles';
 import JSZip from 'jszip';
 
 export const CodeExplorer: React.FC = () => {
-  const [selectedFileId, setSelectedFileId] = useState<string>('app-build-gradle');
+  const [selectedFileId, setSelectedFileId] = useState<string>(() => {
+    try {
+      const saved = sessionStorage.getItem('code_explorer_selected_file');
+      if (saved && PROJECT_FILES.some(f => f.id === saved)) return saved;
+    } catch {}
+    return 'app-build-gradle';
+  });
+
   const [copied, setCopied] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  
+  const [searchQuery, setSearchQuery] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem('code_explorer_search_query') || '';
+    } catch {
+      return '';
+    }
+  });
+  
   const [isZipping, setIsZipping] = useState<boolean>(false);
+
+  // Sync state to sessionStorage whenever changed
+  React.useEffect(() => {
+    try {
+      sessionStorage.setItem('code_explorer_selected_file', selectedFileId);
+    } catch {}
+  }, [selectedFileId]);
+
+  React.useEffect(() => {
+    try {
+      sessionStorage.setItem('code_explorer_search_query', searchQuery);
+    } catch {}
+  }, [searchQuery]);
 
   const selectedFile = PROJECT_FILES.find((f) => f.id === selectedFileId) || PROJECT_FILES[0];
 

@@ -164,3 +164,67 @@ export function getSystemBarAppearance(effectiveTheme: 'dark' | 'light'): System
   };
 }
 
+export interface SafeAreaInsets {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+/**
+ * Calculates Density-Independent Pixel (DP) insets from hardware pixel values.
+ * Accounts for status bar, display cutout (punch hole or notch), and navigation bar.
+ */
+export function calculateSafeAreaInsets(params: {
+  statusBarPx: number;
+  displayCutoutPx?: number;
+  navBarPx: number;
+  density?: number;
+}): { px: SafeAreaInsets; dp: SafeAreaInsets } {
+  const density = params.density && params.density > 0 ? params.density : 1.0;
+  // Top inset is the maximum of status bar height and camera cutout height
+  const topPx = Math.max(params.statusBarPx, params.displayCutoutPx || 0);
+  const bottomPx = params.navBarPx;
+  const leftPx = 0;
+  const rightPx = 0;
+
+  return {
+    px: { top: topPx, bottom: bottomPx, left: leftPx, right: rightPx },
+    dp: {
+      top: Math.round(topPx / density),
+      bottom: Math.round(bottomPx / density),
+      left: Math.round(leftPx / density),
+      right: Math.round(rightPx / density),
+    },
+  };
+}
+
+/**
+ * Generates the JavaScript code injected by WebView's onApplyWindowInsets listener
+ * to define CSS variables for safe area insets on mobile web content.
+ */
+export function generateSafeAreaCssInjection(insetsDp: SafeAreaInsets): string {
+  return `(function() {
+    var root = document.documentElement;
+    root.style.setProperty('--safe-area-top', '${insetsDp.top}px');
+    root.style.setProperty('--safe-area-bottom', '${insetsDp.bottom}px');
+    root.style.setProperty('--safe-area-left', '${insetsDp.left}px');
+    root.style.setProperty('--safe-area-right', '${insetsDp.right}px');
+  })();`;
+}
+
+/**
+ * Detects whether a header container is positioned within the status bar or notch danger zone
+ * when safe area padding is disabled.
+ */
+export function detectNotchCollision(params: {
+  headerTopDp: number;
+  headerHeightDp: number;
+  notchHeightDp: number;
+  isSafeInsetApplied: boolean;
+}): boolean {
+  if (params.isSafeInsetApplied) return false;
+  // If no safe inset is applied and header starts before the notch clears, collision occurs
+  return params.headerTopDp < params.notchHeightDp;
+}
+

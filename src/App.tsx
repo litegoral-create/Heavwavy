@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Music2,
   Smartphone,
@@ -13,7 +13,9 @@ import {
   CheckCircle2,
   Terminal,
   Sun,
-  Moon
+  Moon,
+  Layers,
+  Check
 } from 'lucide-react';
 import { AndroidSimulator } from './components/AndroidSimulator';
 import { CodeExplorer } from './components/CodeExplorer';
@@ -21,10 +23,57 @@ import { ArchitectureGuide } from './components/ArchitectureGuide';
 import { PROJECT_FILES } from './data/projectFiles';
 import JSZip from 'jszip';
 
+type NavTab = 'simulator' | 'code' | 'architecture';
+
+function getTabFromUrl(): NavTab {
+  const hash = window.location.hash.replace('#', '');
+  if (hash === 'code' || hash === 'architecture' || hash === 'simulator') {
+    return hash;
+  }
+  try {
+    const saved = sessionStorage.getItem('active_nav_tab') as NavTab | null;
+    if (saved === 'code' || saved === 'architecture' || saved === 'simulator') {
+      return saved;
+    }
+  } catch {}
+  return 'simulator';
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'simulator' | 'code' | 'architecture'>('simulator');
+  const [activeTab, setActiveTab] = useState<NavTab>(getTabFromUrl);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [globalTheme, setGlobalTheme] = useState<'dark' | 'light'>('dark');
+
+  // Handle browser Back / Forward history events (popstate / hashchange)
+  useEffect(() => {
+    const handleNavigation = () => {
+      const current = getTabFromUrl();
+      setActiveTab(current);
+    };
+
+    window.addEventListener('popstate', handleNavigation);
+    window.addEventListener('hashchange', handleNavigation);
+
+    // Ensure initial URL hash is synchronized
+    if (!window.location.hash) {
+      window.history.replaceState(null, '', `#${activeTab}`);
+    }
+
+    return () => {
+      window.removeEventListener('popstate', handleNavigation);
+      window.removeEventListener('hashchange', handleNavigation);
+    };
+  }, []);
+
+  const handleTabChange = (tab: NavTab) => {
+    if (tab === activeTab) return;
+    setActiveTab(tab);
+    try {
+      sessionStorage.setItem('active_nav_tab', tab);
+    } catch {}
+    // Pushes onto browser history stack so Back/Forward buttons work without losing state
+    window.history.pushState(null, '', `#${tab}`);
+  };
 
   const handleDownloadZip = async () => {
     try {
@@ -151,7 +200,7 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
           globalTheme === 'dark' ? 'border-white/5' : 'border-neutral-200'
         }`}>
           <button
-            onClick={() => setActiveTab('simulator')}
+            onClick={() => handleTabChange('simulator')}
             className={`flex items-center space-x-2 py-3 px-4 text-xs font-semibold border-b-2 transition ${
               activeTab === 'simulator'
                 ? globalTheme === 'dark' ? 'border-rose-500 text-white bg-white/5' : 'border-rose-500 text-neutral-900 bg-neutral-100'
@@ -163,7 +212,7 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
           </button>
 
           <button
-            onClick={() => setActiveTab('code')}
+            onClick={() => handleTabChange('code')}
             className={`flex items-center space-x-2 py-3 px-4 text-xs font-semibold border-b-2 transition ${
               activeTab === 'code'
                 ? globalTheme === 'dark' ? 'border-rose-500 text-white bg-white/5' : 'border-rose-500 text-neutral-900 bg-neutral-100'
@@ -175,7 +224,7 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
           </button>
 
           <button
-            onClick={() => setActiveTab('architecture')}
+            onClick={() => handleTabChange('architecture')}
             className={`flex items-center space-x-2 py-3 px-4 text-xs font-semibold border-b-2 transition ${
               activeTab === 'architecture'
                 ? globalTheme === 'dark' ? 'border-rose-500 text-white bg-white/5' : 'border-rose-500 text-neutral-900 bg-neutral-100'
@@ -233,10 +282,16 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
           </div>
         </div>
 
-        {/* Tab View Switching */}
-        {activeTab === 'simulator' && <AndroidSimulator />}
-        {activeTab === 'code' && <CodeExplorer />}
-        {activeTab === 'architecture' && <ArchitectureGuide />}
+        {/* State-Preserved View Containers (Offscreen Rendering: Prevents Unmounting & Retains All Data) */}
+        <div className={activeTab === 'simulator' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'simulator'}>
+          <AndroidSimulator />
+        </div>
+        <div className={activeTab === 'code' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'code'}>
+          <CodeExplorer />
+        </div>
+        <div className={activeTab === 'architecture' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'architecture'}>
+          <ArchitectureGuide />
+        </div>
       </main>
 
       {/* Footer */}

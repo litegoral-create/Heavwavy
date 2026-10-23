@@ -255,6 +255,7 @@ class MainActivity : AppCompatActivity() {
         const val COMMAND_PREV = "command_prev"
     }
 
+    private lateinit var rootContainer: View
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     private lateinit var errorLayout: FrameLayout
@@ -262,6 +263,10 @@ class MainActivity : AppCompatActivity() {
 
     private var currentRefreshRate: Float = 60.0f
     private var isPlayingAudio: Boolean = false
+    private var lastTopInsetDp: Int = 0
+    private var lastBottomInsetDp: Int = 0
+    private var lastLeftInsetDp: Int = 0
+    private var lastRightInsetDp: Int = 0
 
     // Broadcast receiver for hardware media keys forwarded by MediaPlaybackService
     private val mediaCommandReceiver = object : BroadcastReceiver() {
@@ -288,9 +293,13 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_main)
 
+        rootContainer = findViewById(R.id.rootContainer)
         webView = findViewById(R.id.webView)
         progressBar = findViewById(R.id.progressBar)
         errorLayout = findViewById(R.id.errorLayout)
+
+        // Setup Safe Area Inset Handling to resolve Status Bar & Camera Notch Overlap
+        setupWindowInsetsHandling()
 
         // Request POST_NOTIFICATIONS on Android 13+ (API 33+) for foreground media notification
         checkNotificationPermission()
@@ -376,6 +385,56 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Requirement: Mobile Status Bar & Camera Cutout Safe Area Handling.
+     * Prevents top headers and navigation elements from rendering under the physical clock,
+     * battery percentage, and camera punch-hole notch.
+     *
+     * Captures system window insets (systemBars + displayCutout), calculates DP metrics,
+     * and injects CSS custom properties (--safe-area-top, etc.) into the WebView DOM.
+     */
+    private fun setupWindowInsetsHandling() {
+        ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { _, windowInsets ->
+            val insets = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+
+            val density = resources.displayMetrics.density
+            lastTopInsetDp = (insets.top / density).toInt()
+            lastBottomInsetDp = (insets.bottom / density).toInt()
+            lastLeftInsetDp = (insets.left / density).toInt()
+            lastRightInsetDp = (insets.right / density).toInt()
+
+            // Reposition progress bar directly below the physical cutout / status bar
+            val progressParams = progressBar.layoutParams as? FrameLayout.LayoutParams
+                ?: (progressBar.layoutParams as? androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams)
+            progressParams?.topMargin = insets.top
+            progressBar.layoutParams = progressParams
+
+            // Inject CSS Safe Area variables into current page
+            injectSafeAreaInsetsScript()
+
+            windowInsets
+        }
+    }
+
+    /**
+     * Injects CSS variables onto document.documentElement so mobile web headers
+     * respect safe area boundaries without being drawn behind status bar or notch.
+     */
+    private fun injectSafeAreaInsetsScript() {
+        val cssScript = """
+            (function() {
+                var root = document.documentElement;
+                root.style.setProperty('--safe-area-top', '\${lastTopInsetDp}px');
+                root.style.setProperty('--safe-area-bottom', '\${lastBottomInsetDp}px');
+                root.style.setProperty('--safe-area-left', '\${lastLeftInsetDp}px');
+                root.style.setProperty('--safe-area-right', '\${lastRightInsetDp}px');
+            })();
+        """.trimIndent()
+        executeJavaScript(cssScript)
+    }
+
+    /**
      * Requirement 1, 3 & 4:
      * - Configure WebView for max speed: JS, DOM storage, database caching, multi-threading.
      * - Hardware layer acceleration.
@@ -435,6 +494,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
+                injectSafeAreaInsetsScript()
                 injectAudioBridgeScript()
             }
 
@@ -623,6 +683,12 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         Log.d(TAG, "onStop called: WebView audio preserved for screen-off playback")
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        webView.saveState(outState)
+        Log.d(TAG, "WebView navigation history & state saved to Bundle for seamless back/forward restoration")
     }
 
     override fun onDestroy() {
