@@ -1268,13 +1268,22 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
 
       - name: Grant Execute Permission to Gradlew
-        run: chmod +x ./gradlew
+        run: chmod +x ./gradlew || true
+
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
       - name: Build Release APK with Gradle
-        run: ./gradlew assembleRelease --stacktrace
+        run: |
+          ./gradlew assembleRelease --stacktrace --no-daemon || gradle assembleRelease --stacktrace --no-daemon
 
       - name: Sign APK (Optional with Secrets) or Prepare Release Binary
         id: sign_apk
@@ -1348,8 +1357,8 @@ jobs:
     description: 'Root Gradle configuration defining Android and Kotlin Gradle plugins.',
     requirementTags: ['Project Config'],
     content: `plugins {
-    alias(libs.plugins.android.application) apply false
-    alias(libs.plugins.kotlin.android) apply false
+    id("com.android.application") version "8.3.2" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.23" apply false
 }`
   },
   {
