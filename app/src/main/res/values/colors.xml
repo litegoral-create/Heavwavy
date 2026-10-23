@@ -1,0 +1,17 @@
+<resources>
+    <!-- Brand Accent -->
+    <color name="apple_red">#FA2D48</color>
+    <color name="apple_red_dark">#D32F2F</color>
+
+    <!-- Light Theme Palette -->
+    <color name="window_background_light">#FFFFFF</color>
+    <color name="surface_light">#F2F2F7</color>
+    <color name="apple_text_light">#000000</color>
+    <color name="apple_text_secondary_light">#6E6E73</color>
+
+    <!-- Dark Theme Palette -->
+    <color name="window_background_dark">#000000</color>
+    <color name="surface_dark">#1C1C1E</color>
+    <color name="apple_text_dark">#FFFFFF</color>
+    <color name="apple_text_secondary_dark">#8E8E93</color>
+</resources>

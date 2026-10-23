@@ -1,0 +1,96 @@
+name: Build & Release MusicBetaWrapper APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Grant Execute Permission to Gradlew
+        run: chmod +x ./gradlew
+
+      - name: Build Release APK with Gradle
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Sign APK (Optional with Secrets) or Prepare Release Binary
+        id: sign_apk
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          mkdir -p release-artifacts
+          
+          # Find the built release APK
+          BUILT_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$BUILT_APK" ]; then
+            echo "Error: No APK found in app/build/outputs/apk/release"
+            exit 1
+          fi
+          echo "Found built APK: $BUILT_APK"
+
+          DEST_APK="release-artifacts/MusicBetaWrapper-${{ github.ref_name }}.apk"
+
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ]; then
+            echo "Signing APK with provided repository secrets..."
+            echo "$KEYSTORE_BASE64" | base64 --decode > release.keystore
+            
+            # Align and sign using Android build-tools apksigner
+            BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
+            $BUILD_TOOLS_DIR/zipalign -v -p 4 "$BUILT_APK" "$DEST_APK"
+            $BUILD_TOOLS_DIR/apksigner sign --ks release.keystore \
+              --ks-key-alias "$KEY_ALIAS" \
+              --ks-pass pass:"$KEYSTORE_PASSWORD" \
+              --key-pass pass:"${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" \
+              --out "$DEST_APK" "$DEST_APK"
+            
+            echo "APK successfully signed."
+            rm -f release.keystore
+          else
+            echo "No signing secrets provided. Publishing APK as standard release build."
+            cp "$BUILT_APK" "$DEST_APK"
+          fi
+
+          echo "apk_path=$DEST_APK" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release & Upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MusicBetaWrapper ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: ${{ steps.sign_apk.outputs.apk_path }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          generate_release_notes: true
+          body: |
+            ### 🎵 MusicBetaWrapper ${{ github.ref_name }}
+            
+            High-performance native Android wrapper for [Apple Music Beta](https://beta.music.apple.com).
+            
+            #### Highlights:
+            - **120 Hz+ Display Refresh Rate**: Forced peak refresh mode for ultra-smooth fluid navigation.
+            - **Screen-Off & Background Playback**: Persistent foreground service with `MediaSessionCompat` controls and active wake/Wi-Fi locks.
+            - **500 MB Internal Disk Cache**: High-speed dedicated storage for instant track buffering and offline resource caching.
+            - **iOS Mobile Styling**: Native Safari user-agent override for Apple Music's mobile UI.
+            - **Edge-to-Edge**: Android 14 transparent status & navigation bar immersion.

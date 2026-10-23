@@ -1,0 +1,6 @@
+{
+  "name": "MusicBetaWrapper",
+  "description": "High-performance edge-to-edge native Android wrapper for Apple Music Beta with 120Hz display forcing, screen-off background playback, 500MB custom cache, and automated GitHub releases.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

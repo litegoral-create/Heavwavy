@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">MusicBetaWrapper</string>
+    <string name="network_error_title">Connection Lost</string>
+    <string name="network_error_subtitle">Unable to load Apple Music Beta. Check your internet connection and try again.</string>
+    <string name="action_retry">Retry</string>
+</resources>
