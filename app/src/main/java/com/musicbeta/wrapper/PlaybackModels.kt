@@ -1,6 +1,5 @@
 package com.musicbeta.wrapper
 
-import android.os.Parcelable
 import kotlinx.parcelize.Parcelize
 
 @Parcelize
@@ -15,7 +14,7 @@ data class NativePlaybackState(
     val streamFormat: String = "audio",
     val bitrateKbps: Int? = null,
     val isLossless: Boolean = false,
-) : Parcelable
+) : android.os.Parcelable
 
 @Parcelize
 data class SignedStreamRequest(
@@ -24,7 +23,7 @@ data class SignedStreamRequest(
     val artist: String,
     val artworkUrl: String = "",
     val source: String = "apple_music_web",
-) : Parcelable
+) : android.os.Parcelable
 
 @Parcelize
 data class SignedStreamResponse(
@@ -33,7 +32,7 @@ data class SignedStreamResponse(
     val bitrateKbps: Int? = null,
     val isLossless: Boolean = false,
     val expiresAtEpochMs: Long? = null,
-) : Parcelable
+) : android.os.Parcelable
 
 interface SignedStreamResolver {
     suspend fun resolve(request: SignedStreamRequest): Result<SignedStreamResponse>
