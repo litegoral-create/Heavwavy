@@ -366,3 +366,90 @@ export function generateSpaBackNavigationScript(): string {
   })();`;
 }
 
+export interface ParsedGitHubRepo {
+  owner: string | null;
+  repo: string;
+  isValid: boolean;
+}
+
+/**
+ * Parses a repository input string (e.g. "MusicBetaWrapper", "username/MusicBetaWrapper",
+ * or "https://github.com/username/MusicBetaWrapper.git") into owner and repo name.
+ */
+export function parseGitHubRepoInput(input: string, fallbackOwner?: string): ParsedGitHubRepo {
+  const trimmed = (input || '').trim().replace(/\/+$/, '').replace(/\.git$/i, '');
+  if (!trimmed) {
+    return { owner: fallbackOwner || null, repo: '', isValid: false };
+  }
+
+  // Handle full GitHub URL
+  const urlMatch = trimmed.match(/github\.com\/([^/]+)\/([^/]+)/i);
+  if (urlMatch) {
+    const owner = urlMatch[1].trim();
+    const repo = urlMatch[2].trim();
+    return {
+      owner,
+      repo,
+      isValid: /^[a-zA-Z0-9._-]+$/.test(owner) && /^[a-zA-Z0-9._-]+$/.test(repo),
+    };
+  }
+
+  // Handle owner/repo shorthand
+  if (trimmed.includes('/')) {
+    const parts = trimmed.split('/').filter(Boolean);
+    if (parts.length === 2) {
+      const [owner, repo] = parts;
+      return {
+        owner,
+        repo,
+        isValid: /^[a-zA-Z0-9._-]+$/.test(owner) && /^[a-zA-Z0-9._-]+$/.test(repo),
+      };
+    }
+    return { owner: null, repo: trimmed, isValid: false };
+  }
+
+  // Repo name only
+  const isValidRepo = /^[a-zA-Z0-9._-]+$/.test(trimmed);
+  return {
+    owner: fallbackOwner || null,
+    repo: trimmed,
+    isValid: isValidRepo,
+  };
+}
+
+export interface GitTreeItemInput {
+  path: string;
+  content: string;
+}
+
+export interface GitHubTreeEntry {
+  path: string;
+  mode: '100644';
+  type: 'blob';
+  content: string;
+}
+
+/**
+ * Builds the GitHub Git Data API tree array from project files, ensuring no leading slashes
+ * and no duplicate paths.
+ */
+export function buildGitTreeItems(files: GitTreeItemInput[]): GitHubTreeEntry[] {
+  const seen = new Set<string>();
+  const entries: GitHubTreeEntry[] = [];
+
+  for (const file of files) {
+    const normalizedPath = file.path.replace(/^\/+/, '');
+    if (!normalizedPath || seen.has(normalizedPath)) continue;
+    seen.add(normalizedPath);
+    entries.push({
+      path: normalizedPath,
+      mode: '100644',
+      type: 'blob',
+      content: file.content,
+    });
+  }
+
+  return entries;
+}
+
+

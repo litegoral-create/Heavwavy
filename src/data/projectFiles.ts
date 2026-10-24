@@ -1626,21 +1626,26 @@ class MediaPlaybackService : Service() {
     path: '.github/workflows/release.yml',
     category: 'workflow',
     language: 'yaml',
-    description: 'Automated CI/CD workflow: tag trigger (v*), JDK 17 setup, Gradle assembleRelease build, and automatic GitHub Release APK publishing.',
-    requirementTags: ['Core Requirement #5', 'GitHub Releases CI/CD', 'JDK 17', 'Gradle assembleRelease'],
+    description: 'Automated CI/CD workflow: runs on push to main, v* tags, or manual click; sets up JDK 17 + Gradle 8.5, builds & signs the release APK, uploads artifact & publishes GitHub Release.',
+    requirementTags: ['Core Requirement #5', 'GitHub Releases CI/CD', 'Auto-Signed APK', 'Gradle 8.5'],
     content: `name: Build & Release MusicBetaWrapper APK
 
 on:
   push:
+    branches:
+      - main
+      - master
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build-and-release:
-    name: Build & Release APK
+    name: Build & Sign Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -1655,23 +1660,20 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Gradle
+      - name: Setup Gradle 8.5
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.5'
-
-      - name: Grant Execute Permission to Gradlew
-        run: chmod +x ./gradlew || true
 
       - name: Accept Android SDK Licenses
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
-      - name: Build Release APK with Gradle
+      - name: Build Release & Debug APKs with Gradle
         run: |
-          ./gradlew assembleRelease --stacktrace --no-daemon || gradle assembleRelease --stacktrace --no-daemon
+          gradle assembleRelease assembleDebug --stacktrace --no-daemon
 
-      - name: Sign APK (Optional with Secrets) or Prepare Release Binary
+      - name: Align & Sign Release APK (Secrets or Auto-Generated Keystore)
         id: sign_apk
         env:
           KEYSTORE_BASE64: \${{ secrets.KEYSTORE_BASE64 }}
@@ -1680,8 +1682,7 @@ jobs:
           KEY_PASSWORD: \${{ secrets.KEY_PASSWORD }}
         run: |
           mkdir -p release-artifacts
-          
-          # Find the built release APK
+
           BUILT_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
           if [ -z "$BUILT_APK" ]; then
             echo "Error: No APK found in app/build/outputs/apk/release"
@@ -1689,50 +1690,75 @@ jobs:
           fi
           echo "Found built APK: $BUILT_APK"
 
-          DEST_APK="release-artifacts/MusicBetaWrapper-\${{ github.ref_name }}.apk"
+          VERSION_LABEL="\${GITHUB_REF_NAME:-v1.0.0}"
+          ALIGNED_APK="release-artifacts/aligned.apk"
+          DEST_APK="release-artifacts/MusicBetaWrapper-\${VERSION_LABEL}-signed.apk"
+
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
 
           if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ]; then
             echo "Signing APK with provided repository secrets..."
             echo "$KEYSTORE_BASE64" | base64 --decode > release.keystore
-            
-            # Align and sign using Android build-tools apksigner
-            BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
-            $BUILD_TOOLS_DIR/zipalign -v -p 4 "$BUILT_APK" "$DEST_APK"
-            $BUILD_TOOLS_DIR/apksigner sign --ks release.keystore \
-              --ks-key-alias "$KEY_ALIAS" \
-              --ks-pass pass:"$KEYSTORE_PASSWORD" \
-              --key-pass pass:"\${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" \
-              --out "$DEST_APK" "$DEST_APK"
-            
-            echo "APK successfully signed."
-            rm -f release.keystore
+            KS_PASS="$KEYSTORE_PASSWORD"
+            K_ALIAS="$KEY_ALIAS"
+            K_PASS="\${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
           else
-            echo "No signing secrets provided. Publishing APK as standard release build."
-            cp "$BUILT_APK" "$DEST_APK"
+            echo "No signing secrets configured; generating self-contained release keystore so APK installs cleanly on Android..."
+            KS_PASS="musicbeta123"
+            K_ALIAS="musicbeta"
+            K_PASS="musicbeta123"
+            keytool -genkeypair -v \\
+              -keystore release.keystore \\
+              -alias "$K_ALIAS" \\
+              -keyalg RSA \\
+              -keysize 2048 \\
+              -validity 10000 \\
+              -storepass "$KS_PASS" \\
+              -keypass "$K_PASS" \\
+              -dname "CN=MusicBetaWrapper, OU=Mobile, O=MusicBeta, L=Cupertino, ST=CA, C=US"
           fi
 
+          "$BUILD_TOOLS_DIR/zipalign" -v -p 4 "$BUILT_APK" "$ALIGNED_APK"
+          "$BUILD_TOOLS_DIR/apksigner" sign \\
+            --ks release.keystore \\
+            --ks-key-alias "$K_ALIAS" \\
+            --ks-pass pass:"$KS_PASS" \\
+            --key-pass pass:"$K_PASS" \\
+            --v1-signing-enabled true \\
+            --v2-signing-enabled true \\
+            --v3-signing-enabled true \\
+            --out "$DEST_APK" \\
+            "$ALIGNED_APK"
+
+          rm -f release.keystore "$ALIGNED_APK"
           echo "apk_path=$DEST_APK" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub Release & Upload APK
+      - name: Upload Signed APK as Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicBetaWrapper-Signed-APK
+          path: \${{ steps.sign_apk.outputs.apk_path }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release (on Tag or Main Push)
         uses: softprops/action-gh-release@v2
         with:
           name: MusicBetaWrapper \${{ github.ref_name }}
-          tag_name: \${{ github.ref_name }}
+          tag_name: \${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
           files: \${{ steps.sign_apk.outputs.apk_path }}
           draft: false
-          prerelease: \${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          prerelease: false
           generate_release_notes: true
           body: |
-            ### 🎵 MusicBetaWrapper \${{ github.ref_name }}
-            
-            High-performance native Android wrapper for [Apple Music Beta](https://beta.music.apple.com).
-            
-            #### Highlights:
-            - **120 Hz+ Display Refresh Rate**: Forced peak refresh mode for ultra-smooth fluid navigation.
-            - **Screen-Off & Background Playback**: Persistent foreground service with \`MediaSessionCompat\` controls and active wake/Wi-Fi locks.
-            - **500 MB Internal Disk Cache**: High-speed dedicated storage for instant track buffering and offline resource caching.
-            - **iOS Mobile Styling**: Native Safari user-agent override for Apple Music's mobile UI.
-            - **Edge-to-Edge**: Android 14 transparent status & navigation bar immersion.`
+            ### 🎵 MusicBetaWrapper Signed Android APK (\${{ github.ref_name }})
+
+            Ready-to-install signed Android 14+ (API 34) APK wrapping \`https://beta.music.apple.com\`.
+
+            #### Included Optimizations:
+            - **5 WebView Anti-Lag Optimizations**: 500MB OkHttp disk cache (\`shouldInterceptRequest\`), \`mzstatic.com\` \`300x300bb.webp\` artwork downscaler, telemetry/Sentry blocker, GPU CSS \`backdrop-filter\` stripper, and zero-reload SPA \`window.history.back()\`.
+            - **Camera Notch & Status Bar Safe-Area Protection**: Physical \`WindowInsetsCompat\` (\`systemBars() | displayCutout()\`) padding + runtime CSS safe-area variables.
+            - **120 Hz+ Display Refresh Rate**: Forced peak hardware display mode.
+            - **Screen-Off & Background Audio**: Foreground \`MediaPlaybackService\` with \`MediaSessionCompat\`, \`PARTIAL_WAKE_LOCK\`, and high-perf Wi-Fi lock.`
   },
   {
     id: 'root-build-gradle',
@@ -1778,6 +1804,35 @@ dependencyResolutionManagement {
 
 rootProject.name = "MusicBetaWrapper"
 include(":app")`
+  },
+  {
+    id: 'gradle-properties',
+    name: 'gradle.properties',
+    path: 'gradle.properties',
+    category: 'config',
+    language: 'properties',
+    description: 'AndroidX and JVM heap settings required by Android Gradle Plugin 8+.',
+    requirementTags: ['Project Config', 'AndroidX'],
+    content: `org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+android.useAndroidX=true
+android.enableJetifier=false
+kotlin.code.style=official
+android.nonTransitiveRClass=true`
+  },
+  {
+    id: 'strings-xml',
+    name: 'values/strings.xml',
+    path: 'app/src/main/res/values/strings.xml',
+    category: 'layout',
+    language: 'xml',
+    description: 'String resources for app name and offline fallback UI.',
+    requirementTags: ['App Resources'],
+    content: `<resources>
+    <string name="app_name">MusicBetaWrapper</string>
+    <string name="network_error_title">Connection Lost</string>
+    <string name="network_error_subtitle">Unable to load Apple Music Beta. Check your internet connection and try again.</string>
+    <string name="action_retry">Retry</string>
+</resources>`
   },
   {
     id: 'themes-xml',
@@ -1858,6 +1913,78 @@ include(":app")`
     <color name="apple_text_dark">#FFFFFF</color>
     <color name="apple_text_secondary_dark">#8E8E93</color>
 </resources>`
+  },
+  {
+    id: 'ic-launcher-bg',
+    name: 'drawable/ic_launcher_background.xml',
+    path: 'app/src/main/res/drawable/ic_launcher_background.xml',
+    category: 'layout',
+    language: 'xml',
+    description: 'Adaptive icon OLED black vector background.',
+    requirementTags: ['Adaptive Icon'],
+    content: `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#000000"
+        android:pathData="M0,0h108v108h-108z" />
+</vector>`
+  },
+  {
+    id: 'ic-launcher-fg',
+    name: 'drawable/ic_launcher_foreground.xml',
+    path: 'app/src/main/res/drawable/ic_launcher_foreground.xml',
+    category: 'layout',
+    language: 'xml',
+    description: 'Adaptive icon Apple Music crimson note vector foreground.',
+    requirementTags: ['Adaptive Icon'],
+    content: `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.8"
+        android:scaleY="1.8"
+        android:translateX="32.4"
+        android:translateY="32.4">
+        <path
+            android:fillColor="#FA2D48"
+            android:pathData="M12,3v10.55c-0.59,-0.34 -1.27,-0.55 -2,-0.55 -2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4V7h4V3h-6z" />
+    </group>
+</vector>`
+  },
+  {
+    id: 'mipmap-ic-launcher',
+    name: 'mipmap-anydpi-v26/ic_launcher.xml',
+    path: 'app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml',
+    category: 'layout',
+    language: 'xml',
+    description: 'Adaptive launcher icon definition.',
+    requirementTags: ['Adaptive Icon'],
+    content: `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>`
+  },
+  {
+    id: 'mipmap-ic-launcher-round',
+    name: 'mipmap-anydpi-v26/ic_launcher_round.xml',
+    path: 'app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml',
+    category: 'layout',
+    language: 'xml',
+    description: 'Adaptive round launcher icon definition.',
+    requirementTags: ['Adaptive Icon'],
+    content: `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>`
   },
   {
     id: 'proguard-rules',

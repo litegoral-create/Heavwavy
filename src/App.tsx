@@ -20,19 +20,20 @@ import {
 import { AndroidSimulator } from './components/AndroidSimulator';
 import { CodeExplorer } from './components/CodeExplorer';
 import { ArchitectureGuide } from './components/ArchitectureGuide';
+import { GitHubApkBuilder } from './components/GitHubApkBuilder';
 import { PROJECT_FILES } from './data/projectFiles';
 import JSZip from 'jszip';
 
-type NavTab = 'simulator' | 'code' | 'architecture';
+type NavTab = 'simulator' | 'github-build' | 'code' | 'architecture';
 
 function getTabFromUrl(): NavTab {
   const hash = window.location.hash.replace('#', '');
-  if (hash === 'code' || hash === 'architecture' || hash === 'simulator') {
+  if (hash === 'code' || hash === 'architecture' || hash === 'simulator' || hash === 'github-build') {
     return hash;
   }
   try {
     const saved = sessionStorage.getItem('active_nav_tab') as NavTab | null;
-    if (saved === 'code' || saved === 'architecture' || saved === 'simulator') {
+    if (saved === 'code' || saved === 'architecture' || saved === 'simulator' || saved === 'github-build') {
       return saved;
     }
   } catch {}
@@ -182,6 +183,15 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
             </button>
 
             <button
+              onClick={() => handleTabChange('github-build')}
+              className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-rose-500/40 text-rose-400 hover:text-rose-300 text-xs font-bold shadow-sm transition active:scale-95"
+            >
+              <Github className="w-4 h-4" />
+              <span className="hidden sm:inline">Build APK on GitHub</span>
+              <span className="sm:hidden">Build APK</span>
+            </button>
+
+            <button
               onClick={handleDownloadZip}
               disabled={isDownloadingZip}
               className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white text-xs font-bold shadow-md shadow-rose-500/20 transition active:scale-95 disabled:opacity-50"
@@ -196,12 +206,12 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
         </div>
 
         {/* Tab Navigation */}
-        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1 border-t ${
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex overflow-x-auto space-x-1 border-t ${
           globalTheme === 'dark' ? 'border-white/5' : 'border-neutral-200'
         }`}>
           <button
             onClick={() => handleTabChange('simulator')}
-            className={`flex items-center space-x-2 py-3 px-4 text-xs font-semibold border-b-2 transition ${
+            className={`flex items-center space-x-2 py-3 px-4 text-xs font-semibold border-b-2 whitespace-nowrap transition ${
               activeTab === 'simulator'
                 ? globalTheme === 'dark' ? 'border-rose-500 text-white bg-white/5' : 'border-rose-500 text-neutral-900 bg-neutral-100'
                 : globalTheme === 'dark' ? 'border-transparent text-neutral-400 hover:text-neutral-200' : 'border-transparent text-neutral-500 hover:text-black'
@@ -212,8 +222,23 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
           </button>
 
           <button
+            onClick={() => handleTabChange('github-build')}
+            className={`flex items-center space-x-2 py-3 px-4 text-xs font-semibold border-b-2 whitespace-nowrap transition ${
+              activeTab === 'github-build'
+                ? globalTheme === 'dark' ? 'border-rose-500 text-white bg-white/5' : 'border-rose-500 text-neutral-900 bg-neutral-100'
+                : globalTheme === 'dark' ? 'border-transparent text-rose-400 hover:text-rose-300' : 'border-transparent text-rose-600 hover:text-rose-700'
+            }`}
+          >
+            <Github className="w-4 h-4" />
+            <span>Build APK on GitHub</span>
+            <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 text-[9px] font-bold uppercase">
+              Auto-Sign CI/CD
+            </span>
+          </button>
+
+          <button
             onClick={() => handleTabChange('code')}
-            className={`flex items-center space-x-2 py-3 px-4 text-xs font-semibold border-b-2 transition ${
+            className={`flex items-center space-x-2 py-3 px-4 text-xs font-semibold border-b-2 whitespace-nowrap transition ${
               activeTab === 'code'
                 ? globalTheme === 'dark' ? 'border-rose-500 text-white bg-white/5' : 'border-rose-500 text-neutral-900 bg-neutral-100'
                 : globalTheme === 'dark' ? 'border-transparent text-neutral-400 hover:text-neutral-200' : 'border-transparent text-neutral-500 hover:text-black'
@@ -225,7 +250,7 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
 
           <button
             onClick={() => handleTabChange('architecture')}
-            className={`flex items-center space-x-2 py-3 px-4 text-xs font-semibold border-b-2 transition ${
+            className={`flex items-center space-x-2 py-3 px-4 text-xs font-semibold border-b-2 whitespace-nowrap transition ${
               activeTab === 'architecture'
                 ? globalTheme === 'dark' ? 'border-rose-500 text-white bg-white/5' : 'border-rose-500 text-neutral-900 bg-neutral-100'
                 : globalTheme === 'dark' ? 'border-transparent text-neutral-400 hover:text-neutral-200' : 'border-transparent text-neutral-500 hover:text-black'
@@ -273,11 +298,14 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
             </div>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-neutral-900/60 border border-neutral-800/80 flex items-center space-x-2 col-span-2 sm:col-span-1">
+          <div
+            onClick={() => handleTabChange('github-build')}
+            className="p-2.5 rounded-xl bg-neutral-900/60 border border-neutral-800/80 hover:border-rose-500/40 cursor-pointer flex items-center space-x-2 col-span-2 sm:col-span-1 transition"
+          >
             <Github className="w-4 h-4 text-cyan-400 flex-shrink-0" />
             <div className="min-w-0">
               <span className="text-[10px] uppercase font-mono text-neutral-500 block">Automated CI/CD</span>
-              <span className="text-xs font-semibold text-neutral-200 truncate block">GitHub Tag Releases</span>
+              <span className="text-xs font-semibold text-neutral-200 truncate block">Build Signed APK →</span>
             </div>
           </div>
         </div>
@@ -285,6 +313,9 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
         {/* State-Preserved View Containers (Offscreen Rendering: Prevents Unmounting & Retains All Data) */}
         <div className={activeTab === 'simulator' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'simulator'}>
           <AndroidSimulator />
+        </div>
+        <div className={activeTab === 'github-build' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'github-build'}>
+          <GitHubApkBuilder onDownloadZip={handleDownloadZip} />
         </div>
         <div className={activeTab === 'code' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'code'}>
           <CodeExplorer />

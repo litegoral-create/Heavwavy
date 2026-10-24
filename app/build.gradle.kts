@@ -65,6 +65,12 @@ dependencies {
     implementation("androidx.webkit:webkit:1.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Jetpack Media3 High-Resolution Audio Engine (ExoPlayer + HLS ALAC/AAC + Float32/Offload)
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.3.1")
+    implementation("androidx.media3:media3-session:1.3.1")
+    implementation("androidx.media3:media3-common:1.3.1")
+
     // MediaSession & Foreground Media Notification (Android 14+ compliant)
     implementation("androidx.media:media:1.7.0")
 

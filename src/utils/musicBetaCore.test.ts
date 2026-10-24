@@ -172,3 +172,29 @@ test('generateGpuPerformanceCss and generateSpaBackNavigationScript contain expe
   const backScript = generateSpaBackNavigationScript();
   assert.ok(backScript.includes('window.history.back()'));
 });
+
+test('parseGitHubRepoInput and buildGitTreeItems normalize GitHub repository inputs and tree entries', async () => {
+  const { parseGitHubRepoInput, buildGitTreeItems } = await import('./musicBetaCore');
+
+  assert.deepEqual(parseGitHubRepoInput('MusicBetaWrapper', 'octocat'), {
+    owner: 'octocat',
+    repo: 'MusicBetaWrapper',
+    isValid: true,
+  });
+
+  assert.deepEqual(parseGitHubRepoInput('https://github.com/octocat/MusicBetaWrapper.git'), {
+    owner: 'octocat',
+    repo: 'MusicBetaWrapper',
+    isValid: true,
+  });
+
+  const tree = buildGitTreeItems([
+    { path: '/app/build.gradle.kts', content: 'plugins {}' },
+    { path: 'app/build.gradle.kts', content: 'duplicate' },
+    { path: '.github/workflows/release.yml', content: 'name: Build' },
+  ]);
+  assert.equal(tree.length, 2);
+  assert.equal(tree[0].path, 'app/build.gradle.kts');
+  assert.equal(tree[1].path, '.github/workflows/release.yml');
+});
+
