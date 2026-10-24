@@ -13,7 +13,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
@@ -69,12 +72,26 @@ class MediaPlaybackService : Service() {
 
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
+    private val playbackHandler = Handler(Looper.getMainLooper())
 
     private var currentTitle: String = "Apple Music"
     private var currentArtist: String = "Playing in Background"
     private var currentArtworkUrl: String = ""
     private var currentArtworkBitmap: Bitmap? = null
     private var isPlaying: Boolean = false
+
+    private val playbackTicker = object : Runnable {
+        override fun run() {
+            if (player != null) {
+                val position = player?.currentPosition ?: 0L
+                val duration = player?.duration ?: 0L
+                if (isPlaying || player?.isPlaying == true) {
+                    dispatchPlaybackState(position, duration)
+                }
+            }
+            playbackHandler.postDelayed(this, 1000L)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -83,6 +100,7 @@ class MediaPlaybackService : Service() {
         initPlayer()
         initMediaSession()
         initLocks()
+        playbackHandler.post(playbackTicker)
         Log.i(TAG, "MediaPlaybackService initialized with native ExoPlayer audio engine")
     }
 
@@ -99,13 +117,14 @@ class MediaPlaybackService : Service() {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
                         Player.STATE_READY -> {
-                            isPlaying = isPlaying
                             updatePlaybackState(true)
+                            dispatchPlaybackState(currentPosition, duration)
                             updateNotification()
                         }
                         Player.STATE_ENDED -> {
                             isPlaying = false
                             updatePlaybackState(false)
+                            dispatchPlaybackState(currentPosition, duration)
                             updateNotification()
                         }
                         Player.STATE_IDLE -> Unit
@@ -117,6 +136,7 @@ class MediaPlaybackService : Service() {
                     Log.e(TAG, "ExoPlayer error", error)
                     isPlaying = false
                     updatePlaybackState(false)
+                    dispatchPlaybackState(currentPosition, duration)
                     updateNotification()
                 }
             })
@@ -151,12 +171,8 @@ class MediaPlaybackService : Service() {
 
     private fun acquireLocks() {
         try {
-            wakeLock?.let {
-                if (!it.isHeld) it.acquire()
-            }
-            wifiLock?.let {
-                if (!it.isHeld) it.acquire()
-            }
+            wakeLock?.let { if (!it.isHeld) it.acquire() }
+            wifiLock?.let { if (!it.isHeld) it.acquire() }
         } catch (e: Exception) {
             Log.e(TAG, "Error acquiring locks", e)
         }
@@ -164,12 +180,8 @@ class MediaPlaybackService : Service() {
 
     private fun releaseLocks() {
         try {
-            wakeLock?.let {
-                if (it.isHeld) it.release()
-            }
-            wifiLock?.let {
-                if (it.isHeld) it.release()
-            }
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wifiLock?.let { if (it.isHeld) it.release() }
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing locks", e)
         }
@@ -313,6 +325,7 @@ class MediaPlaybackService : Service() {
         acquireLocks()
         updatePlaybackState(true)
         loadArtworkAndRefresh(currentArtworkUrl)
+        dispatchPlaybackState(player?.currentPosition ?: 0L, player?.duration ?: 0L)
         updateNotification()
         startForegroundWithNotification()
     }
@@ -322,6 +335,7 @@ class MediaPlaybackService : Service() {
         player?.pause()
         releaseLocks()
         updatePlaybackState(false)
+        dispatchPlaybackState(player?.currentPosition ?: 0L, player?.duration ?: 0L)
         refreshNotification()
     }
 
@@ -330,6 +344,7 @@ class MediaPlaybackService : Service() {
         player?.play()
         acquireLocks()
         updatePlaybackState(true)
+        dispatchPlaybackState(player?.currentPosition ?: 0L, player?.duration ?: 0L)
         refreshNotification()
     }
 
@@ -339,6 +354,7 @@ class MediaPlaybackService : Service() {
         player?.clearMediaItems()
         releaseLocks()
         updatePlaybackState(false)
+        dispatchPlaybackState(0L, 0L)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -348,6 +364,7 @@ class MediaPlaybackService : Service() {
         player?.play()
         acquireLocks()
         updatePlaybackState(true)
+        dispatchPlaybackState(player?.currentPosition ?: 0L, player?.duration ?: 0L)
         refreshNotification()
         dispatchToActivity(MainActivity.COMMAND_PLAY)
     }
@@ -357,6 +374,7 @@ class MediaPlaybackService : Service() {
         player?.pause()
         releaseLocks()
         updatePlaybackState(false)
+        dispatchPlaybackState(player?.currentPosition ?: 0L, player?.duration ?: 0L)
         refreshNotification()
         dispatchToActivity(MainActivity.COMMAND_PAUSE)
     }
@@ -376,6 +394,19 @@ class MediaPlaybackService : Service() {
     private fun dispatchToActivity(command: String) {
         val intent = Intent(MainActivity.ACTION_MEDIA_COMMAND).apply {
             putExtra(MainActivity.EXTRA_COMMAND, command)
+            setPackage(packageName)
+        }
+        sendBroadcast(intent)
+    }
+
+    private fun dispatchPlaybackState(positionMs: Long, durationMs: Long) {
+        val intent = Intent(MainActivity.ACTION_PLAYBACK_STATE).apply {
+            putExtra(MainActivity.EXTRA_PLAYING, isPlaying)
+            putExtra(MainActivity.EXTRA_TITLE, currentTitle)
+            putExtra(MainActivity.EXTRA_ARTIST, currentArtist)
+            putExtra(MainActivity.EXTRA_ARTWORK, currentArtworkUrl)
+            putExtra(MainActivity.EXTRA_POSITION_MS, positionMs)
+            putExtra(MainActivity.EXTRA_DURATION_MS, durationMs)
             setPackage(packageName)
         }
         sendBroadcast(intent)
@@ -515,6 +546,7 @@ class MediaPlaybackService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         serviceJob.cancel()
+        playbackHandler.removeCallbacks(playbackTicker)
         releaseLocks()
         player?.release()
         mediaSession.isActive = false
