@@ -44,7 +44,7 @@ import java.io.File
  *
  * Key Capabilities:
  * 1. 120Hz+ Display Refresh Rate Forcing
- * 2. Uninterrupted Background Audio (Screen-Off) via ForegroundService & Wake/Wi-Fi locks
+ * 2. Uninterrupted Background Audio (Screen-Off) via ForegroundService & Wake/Wi‑Fi locks
  * 3. 500MB Dedicated Internal WebView Cache
  * 4. iOS Safari User-Agent Spoofing for native Apple Music mobile interface
  * 5. Dynamic Light & Dark Mode with automatic System Bar Icon Tinting
@@ -57,17 +57,14 @@ class MainActivity : AppCompatActivity() {
         private const val APPLE_MUSIC_BETA_URL = "https://beta.music.apple.com"
         private const val NOTIFICATION_PERMISSION_CODE = 1001
 
-        // Preferences for Light/Dark Mode
         private const val PREFS_NAME = "music_wrapper_prefs"
         private const val KEY_THEME_MODE = "pref_theme_mode"
         const val THEME_SYSTEM = "system"
         const val THEME_LIGHT = "light"
         const val THEME_DARK = "dark"
 
-        // iOS Safari 17.5 User-Agent (iPhone Mobile)
         const val IOS_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
 
-        // Broadcast actions between Activity and MediaPlaybackService
         const val ACTION_MEDIA_COMMAND = "com.musicbeta.wrapper.MEDIA_COMMAND"
         const val EXTRA_COMMAND = "extra_command"
         const val COMMAND_PLAY = "command_play"
@@ -91,7 +88,6 @@ class MainActivity : AppCompatActivity() {
     private var lastLeftInsetDp: Int = 0
     private var lastRightInsetDp: Int = 0
 
-    // Broadcast receiver for hardware media keys forwarded by MediaPlaybackService
     private val mediaCommandReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ACTION_MEDIA_COMMAND) {
@@ -109,15 +105,10 @@ class MainActivity : AppCompatActivity() {
         sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         currentThemeMode = sharedPreferences.getString(KEY_THEME_MODE, THEME_SYSTEM) ?: THEME_SYSTEM
 
-        // Apply saved theme before view inflation
         applyAppCompatNightMode(currentThemeMode)
-
         super.onCreate(savedInstanceState)
 
-        // 1. Force High Refresh Rate (120 Hz+)
         enforceMaxDisplayRefreshRate()
-
-        // 2. Setup True Edge-to-Edge display with dynamic status & nav bar tinting
         setupEdgeToEdge()
 
         setContentView(R.layout.activity_main)
@@ -127,19 +118,11 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         errorLayout = findViewById(R.id.errorLayout)
 
-        // Setup Safe Area Inset Handling to resolve Status Bar & Camera Notch Overlap
         setupWindowInsetsHandling()
-
-        // Request POST_NOTIFICATIONS on Android 13+ (API 33+) for foreground media notification
         checkNotificationPermission()
-
-        // 3. Configure WebView for Maximum Performance, 500MB Cache & Light/Dark styling
         configureHighPerformanceWebView()
-
-        // 4. Setup Back-press handling to navigate WebView history
         setupBackNavigation()
 
-        // 5. Register Media Command Receiver
         val filter = IntentFilter(ACTION_MEDIA_COMMAND)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(mediaCommandReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -147,7 +130,6 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(mediaCommandReceiver, filter)
         }
 
-        // 6. Load Apple Music Beta
         if (savedInstanceState == null) {
             val targetUrl = intent?.dataString ?: APPLE_MUSIC_BETA_URL
             webView.loadUrl(targetUrl)
@@ -156,9 +138,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Requirement 1: Performance & 120 Hz.
-     */
     private fun enforceMaxDisplayRefreshRate() {
         try {
             val displayObj: Display? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -189,9 +168,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Edge-to-Edge display and Dynamic Status/Navigation Bar Styling for Light and Dark modes.
-     */
     private fun setupEdgeToEdge() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         supportActionBar?.hide()
@@ -208,14 +184,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Requirement: Mobile Status Bar & Camera Cutout Safe Area Handling.
-     * Prevents top headers and navigation elements from rendering under the physical clock,
-     * battery percentage, and camera punch-hole notch.
-     *
-     * Captures system window insets (systemBars + displayCutout), calculates DP metrics,
-     * and injects CSS custom properties (--safe-area-top, etc.) into the WebView DOM.
-     */
     private fun setupWindowInsetsHandling() {
         ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { _, windowInsets ->
             val insets = windowInsets.getInsets(
@@ -228,23 +196,16 @@ class MainActivity : AppCompatActivity() {
             lastLeftInsetDp = (insets.left / density).toInt()
             lastRightInsetDp = (insets.right / density).toInt()
 
-            // Reposition progress bar directly below the physical cutout / status bar
             val progressParams = progressBar.layoutParams as? FrameLayout.LayoutParams
                 ?: (progressBar.layoutParams as? androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams)
             progressParams?.topMargin = insets.top
             progressBar.layoutParams = progressParams
 
-            // Inject CSS Safe Area variables into current page
             injectSafeAreaInsetsScript()
-
             windowInsets
         }
     }
 
-    /**
-     * Injects CSS variables onto document.documentElement so mobile web headers
-     * respect safe area boundaries without being drawn behind status bar or notch.
-     */
     private fun injectSafeAreaInsetsScript() {
         val cssScript = """
             (function() {
@@ -258,13 +219,8 @@ class MainActivity : AppCompatActivity() {
         executeJavaScript(cssScript)
     }
 
-    /**
-     * Sets status bar and navigation bar icon colors (light vs dark) based on the active theme.
-     */
     private fun updateSystemBarsForCurrentTheme() {
         val isDarkMode = isEffectiveDarkMode()
-        // In Light Mode, icons must be dark (isAppearanceLight = true).
-        // In Dark Mode, icons must be light (isAppearanceLight = false).
         insetsController.isAppearanceLightStatusBars = !isDarkMode
         insetsController.isAppearanceLightNavigationBars = !isDarkMode
     }
@@ -280,9 +236,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Public theme switcher function for setting Light, Dark, or System mode.
-     */
     fun setThemeMode(mode: String) {
         currentThemeMode = mode
         sharedPreferences.edit().putString(KEY_THEME_MODE, mode).apply()
@@ -300,14 +253,6 @@ class MainActivity : AppCompatActivity() {
         AppCompatDelegate.setDefaultNightMode(nightMode)
     }
 
-    /**
-     * Requirement 1, 3, 4 & 5:
-     * - Configure WebView for max speed: JS, DOM storage, database caching, multi-threading.
-     * - Hardware layer acceleration.
-     * - Dedicated 500 MB custom internal disk cache directory.
-     * - iOS Safari User-Agent override.
-     * - Light / Dark mode synchronization.
-     */
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureHighPerformanceWebView() {
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
@@ -315,13 +260,10 @@ class MainActivity : AppCompatActivity() {
         webView.isHorizontalScrollBarEnabled = false
 
         val settings = webView.settings
-
-        // 1. JavaScript & Storage
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
 
-        // 2. 500 MB Custom Disk Cache Allocation
         val customCacheDir = File(applicationContext.cacheDir, "music_beta_webview_cache")
         if (!customCacheDir.exists()) {
             customCacheDir.mkdirs()
@@ -329,7 +271,6 @@ class MainActivity : AppCompatActivity() {
         settings.cacheMode = WebSettings.LOAD_DEFAULT
         manageCacheQuota(customCacheDir, 500L * 1024L * 1024L)
 
-        // 3. Performance & Speed Optimizations
         settings.offscreenPreRaster = true
         settings.mediaPlaybackRequiresUserGesture = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
@@ -337,17 +278,10 @@ class MainActivity : AppCompatActivity() {
         settings.loadsImagesAutomatically = true
         settings.allowFileAccess = false
         settings.allowContentAccess = false
-
-        // 4. iOS Safari User-Agent Override
         settings.userAgentString = IOS_USER_AGENT
 
-        // 5. Light/Dark Mode configuration on WebView
         applyWebViewTheme(currentThemeMode)
-
-        // 6. JavaScript Interface for Media Session & Background Sync
         webView.addJavascriptInterface(MusicBridge(), "AndroidBridge")
-
-        // 7. WebViewClient and WebChromeClient
         setupWebViewClients()
     }
 
@@ -355,7 +289,6 @@ class MainActivity : AppCompatActivity() {
         val isDark = isEffectiveDarkMode()
         webView.setBackgroundColor(if (isDark) Color.parseColor("#000000") else Color.parseColor("#FFFFFF"))
 
-        // Use AndroidX WebSettingsCompat if supported on this device
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
                 WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, isDark)
@@ -370,7 +303,6 @@ class MainActivity : AppCompatActivity() {
             WebSettingsCompat.setForceDark(webView.settings, forceDarkValue)
         }
 
-        // Also inject color-scheme meta tag into web page DOM
         val themeScript = """
             (function() {
                 const scheme = '${if (isDark) "dark" else "light"}';
@@ -454,32 +386,43 @@ class MainActivity : AppCompatActivity() {
                     }
                 };
 
+                const getAudioUrl = function() {
+                    try {
+                        const audioNode = document.querySelector('audio');
+                        if (audioNode && audioNode.src) return audioNode.src;
+                        const videoNode = document.querySelector('video');
+                        if (videoNode && videoNode.src) return videoNode.src;
+                    } catch (e) {}
+                    return '';
+                };
+
                 const notifyStateChange = function(playing) {
-                    let title = "Apple Music";
-                    let artist = "Now Playing";
-                    let artwork = "";
+                    let title = 'Apple Music';
+                    let artist = 'Now Playing';
+                    let artwork = '';
+                    let streamUrl = getAudioUrl();
 
                     if (navigator.mediaSession && navigator.mediaSession.metadata) {
                         title = navigator.mediaSession.metadata.title || title;
                         artist = navigator.mediaSession.metadata.artist || artist;
                         if (navigator.mediaSession.metadata.artwork && navigator.mediaSession.metadata.artwork.length > 0) {
-                            artwork = navigator.mediaSession.metadata.artwork[0].src || "";
+                            artwork = navigator.mediaSession.metadata.artwork[0].src || '';
                         }
                     }
 
                     if (window.AndroidBridge) {
-                        window.AndroidBridge.onPlaybackStateChanged(playing, title, artist, artwork);
+                        window.AndroidBridge.onPlaybackStateChanged(playing, title, artist, artwork, streamUrl);
                     }
                 };
 
                 document.addEventListener('play', function(e) {
-                    if (e.target.tagName === 'AUDIO') {
+                    if (e.target && (e.target.tagName === 'AUDIO' || e.target.tagName === 'VIDEO')) {
                         notifyStateChange(true);
                     }
                 }, true);
 
                 document.addEventListener('pause', function(e) {
-                    if (e.target.tagName === 'AUDIO') {
+                    if (e.target && (e.target.tagName === 'AUDIO' || e.target.tagName === 'VIDEO')) {
                         notifyStateChange(false);
                     }
                 }, true);
@@ -490,8 +433,9 @@ class MainActivity : AppCompatActivity() {
                             const meta = navigator.mediaSession.metadata;
                             const isPlaying = navigator.mediaSession.playbackState === 'playing';
                             const art = (meta.artwork && meta.artwork.length > 0) ? meta.artwork[0].src : '';
+                            const streamUrl = getAudioUrl();
                             if (window.AndroidBridge) {
-                                window.AndroidBridge.onMetadataUpdated(meta.title || '', meta.artist || '', art, isPlaying);
+                                window.AndroidBridge.onMetadataUpdated(meta.title || '', meta.artist || '', art, isPlaying, streamUrl);
                             }
                         }
                     }, 2000);
@@ -542,32 +486,76 @@ class MainActivity : AppCompatActivity() {
 
     inner class MusicBridge {
         @JavascriptInterface
-        fun onPlaybackStateChanged(isPlaying: Boolean, title: String, artist: String, artworkUrl: String) {
+        fun onPlaybackStateChanged(isPlaying: Boolean, title: String, artist: String, artworkUrl: String, streamUrl: String = "") {
             runOnUiThread {
                 this@MainActivity.isPlayingAudio = isPlaying
+
                 val serviceIntent = Intent(this@MainActivity, MediaPlaybackService::class.java).apply {
-                    action = if (isPlaying) MediaPlaybackService.ACTION_START_PLAYBACK else MediaPlaybackService.ACTION_PAUSE_PLAYBACK
+                    action = if (isPlaying) {
+                        if (streamUrl.isNotBlank()) MediaPlaybackService.ACTION_PLAY_STREAM else MediaPlaybackService.ACTION_START_PLAYBACK
+                    } else {
+                        MediaPlaybackService.ACTION_PAUSE_PLAYBACK
+                    }
                     putExtra(MediaPlaybackService.EXTRA_TITLE, title)
                     putExtra(MediaPlaybackService.EXTRA_ARTIST, artist)
                     putExtra(MediaPlaybackService.EXTRA_ARTWORK_URL, artworkUrl)
+                    if (streamUrl.isNotBlank()) {
+                        putExtra(MediaPlaybackService.EXTRA_STREAM_URL, streamUrl)
+                    }
                 }
                 ContextCompat.startForegroundService(this@MainActivity, serviceIntent)
             }
         }
 
         @JavascriptInterface
-        fun onMetadataUpdated(title: String, artist: String, artworkUrl: String, isPlaying: Boolean) {
+        fun onMetadataUpdated(title: String, artist: String, artworkUrl: String, isPlaying: Boolean, streamUrl: String = "") {
             runOnUiThread {
                 if (isPlaying || this@MainActivity.isPlayingAudio) {
                     val serviceIntent = Intent(this@MainActivity, MediaPlaybackService::class.java).apply {
-                        action = MediaPlaybackService.ACTION_UPDATE_METADATA
+                        action = if (streamUrl.isNotBlank()) MediaPlaybackService.ACTION_PLAY_STREAM else MediaPlaybackService.ACTION_UPDATE_METADATA
                         putExtra(MediaPlaybackService.EXTRA_TITLE, title)
                         putExtra(MediaPlaybackService.EXTRA_ARTIST, artist)
                         putExtra(MediaPlaybackService.EXTRA_ARTWORK_URL, artworkUrl)
+                        if (streamUrl.isNotBlank()) {
+                            putExtra(MediaPlaybackService.EXTRA_STREAM_URL, streamUrl)
+                        }
                     }
                     ContextCompat.startForegroundService(this@MainActivity, serviceIntent)
                 }
             }
+        }
+
+        @JavascriptInterface
+        fun playStream(url: String, title: String, artist: String, artworkUrl: String) {
+            val intent = Intent(this@MainActivity, MediaPlaybackService::class.java).apply {
+                action = MediaPlaybackService.ACTION_PLAY_STREAM
+                putExtra(MediaPlaybackService.EXTRA_STREAM_URL, url)
+                putExtra(MediaPlaybackService.EXTRA_TITLE, title)
+                putExtra(MediaPlaybackService.EXTRA_ARTIST, artist)
+                putExtra(MediaPlaybackService.EXTRA_ARTWORK_URL, artworkUrl)
+            }
+            ContextCompat.startForegroundService(this@MainActivity, intent)
+        }
+
+        @JavascriptInterface
+        fun pause() {
+            val intent = Intent(this@MainActivity, MediaPlaybackService::class.java).apply {
+                action = MediaPlaybackService.ACTION_PAUSE_PLAYBACK
+            }
+            ContextCompat.startForegroundService(this@MainActivity, intent)
+        }
+
+        @JavascriptInterface
+        fun resume() {
+            val intent = Intent(this@MainActivity, MediaPlaybackService::class.java).apply {
+                action = MediaPlaybackService.ACTION_RESUME_PLAYBACK
+            }
+            ContextCompat.startForegroundService(this@MainActivity, intent)
+        }
+
+        @JavascriptInterface
+        fun seekTo(ms: Int) {
+            // reserved for future seeker integration; ExoPlayer can be hooked here if a UI/bridge exposes position
         }
     }
 
