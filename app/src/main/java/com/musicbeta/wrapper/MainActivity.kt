@@ -86,6 +86,15 @@ class MainActivity : AppCompatActivity() {
         const val COMMAND_NEXT = "command_next"
         const val COMMAND_PREV = "command_prev"
 
+        // Native audio telemetry broadcast extras used by MediaPlaybackService
+        const val ACTION_NATIVE_AUDIO_STATE = "com.musicbeta.wrapper.NATIVE_AUDIO_STATE"
+        const val EXTRA_POSITION_MS = "extra_position_ms"
+        const val EXTRA_DURATION_MS = "extra_duration_ms"
+        const val EXTRA_IS_PLAYING = "extra_is_playing"
+        const val EXTRA_SAMPLE_RATE_HZ = "extra_sample_rate_hz"
+        const val EXTRA_BIT_DEPTH = "extra_bit_depth"
+        const val EXTRA_CODEC = "extra_codec"
+
         // Optimization 3: Blocked Telemetry & Analytics Domains/Substrings
         private val BLOCKED_TELEMETRY_PATTERNS = listOf(
             "metrics.apple.com",
@@ -644,7 +653,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             val body = response.body ?: return null
-            val contentTypeHeader = response.header("Content-Type", guessMimeType(targetUrl)) ?: "application/octet-stream"
+            val contentTypeHeader = response.header("Content-Type") ?: guessMimeType(targetUrl)
             val mimeType = contentTypeHeader.substringBefore(';').trim()
             val encoding = if (contentTypeHeader.contains("charset=", ignoreCase = true)) {
                 contentTypeHeader.substringAfter("charset=", "UTF-8").substringBefore(';').trim()
@@ -703,9 +712,9 @@ class MainActivity : AppCompatActivity() {
                 style.textContent = [
                     '/* 1. Strip expensive GPU Gaussian backdrop-filter blurs */',
                     '*, *::before, *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }',
-                    '.chrome-player, .web-navigation, .header-bar, [class*="backdrop"], [class*="blur"] { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background-color: rgba(18, 18, 22, 0.96) !important; }',
+                    '.chrome-player, .web-navigation, .header-bar, [class*="backdrop"], [class*="blur"] { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background-color: transparent !important; }',
                     '/* 2. Hide "Open in Music App" upsell banners & promotional clutter */',
-                    '.upsell-banner, [data-testid="upsell-banner"], [class*="upsell"], [class*="open-in-app"], [class*="smart-banner"], .native-upsell, a[href*="itunes.apple.com"], button[aria-label*="Open in Music"] { display: none !important; height: 0 !important; max-height: 0 !important; visibility: hidden !important; pointer-events: none !important; overflow: hidden !important; }',
+                    '.upsell-banner, [data-testid="upsell-banner"], [class*="upsell"], [class*="open-in-app"], [class*="smart-banner"], .native-upsell, a[href*="itunes.apple.com"], button[aria-label*="Open in"], [class*="promo"] { display: none !important; }',
                     '/* 3. Enable GPU hardware-accelerated scrolling & content-visibility */',
                     'main, .scrollable-page, [class*="shelf"], [class*="grid"] { transform: translateZ(0); -webkit-overflow-scrolling: touch; will-change: transform; }',
                     '.shelf-grid__item, .songs-list-row, [data-testid="track-lockup"], [class*="lockup"] { content-visibility: auto; contain-intrinsic-size: 1px 240px; }'
