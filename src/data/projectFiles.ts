@@ -81,8 +81,9 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.0")
     implementation("androidx.coordinatorlayout:coordinatorlayout:1.2.0")
 
-    // High-Performance WebView
+    // High-Performance WebView & OkHttp Aggressive Disk Cache Interceptor
     implementation("androidx.webkit:webkit:1.11.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // MediaSession & Foreground Media Notification (Android 14+ compliant)
     implementation("androidx.media:media:1.7.0")
@@ -104,8 +105,8 @@ dependencies {
     path: 'app/src/main/AndroidManifest.xml',
     category: 'manifest',
     language: 'xml',
-    description: 'Hardware acceleration enabled, Android 14 mediaPlayback foreground service, wake locks, and deep links.',
-    requirementTags: ['Core Requirement #1 & #2', 'hardwareAccelerated="true"', 'foregroundServiceType="mediaPlayback"'],
+    description: 'Hardware acceleration enabled, zero-reload SPA configChanges, Android 14 mediaPlayback foreground service, wake locks, and deep links.',
+    requirementTags: ['Core Requirement #1 & #2', 'hardwareAccelerated="true"', 'Zero-Reload configChanges', 'foregroundServiceType="mediaPlayback"'],
     content: `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -137,13 +138,13 @@ dependencies {
         android:usesCleartextTraffic="false"
         tools:targetApi="34">
 
-        <!-- Main Wrapper Activity with Edge-to-Edge and High Refresh Rate -->
+        <!-- Main Wrapper Activity with Edge-to-Edge, High Refresh Rate & Zero-Reload SPA Lifecycle -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:hardwareAccelerated="true"
             android:launchMode="singleTask"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -186,8 +187,8 @@ dependencies {
     path: 'app/src/main/java/com/musicbeta/wrapper/MainActivity.kt',
     category: 'kotlin',
     language: 'kotlin',
-    description: '120Hz display refresh mode forcing, WebView speed tuning, 500MB cache, iOS UA spoofing, preserved audio pipeline on pause.',
-    requirementTags: ['Core Requirement #1, #2, #3, #4', '120 Hz Mode Forcing', '500MB Cache', 'iOS User-Agent'],
+    description: '5 WebView Anti-Lag Optimizations: OkHttp Disk Cache (shouldInterceptRequest), mzstatic 300x300bb.webp Artwork Downscaler, Telemetry Blocker, GPU CSS Injection, and Zero-Reload SPA Back Navigation.',
+    requirementTags: ['OkHttp Disk Cache', '300x300bb.webp Artwork', 'Telemetry Blocker', 'GPU CSS Injection', 'SPA window.history.back()'],
     content: `package com.musicbeta.wrapper
 
 import android.Manifest
@@ -196,15 +197,18 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Display
 import android.view.View
-import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -217,13 +221,22 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
+import okhttp3.Cache
+import okhttp3.CacheControl
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * MainActivity for MusicBetaWrapper.
@@ -232,9 +245,11 @@ import java.io.File
  * Key Capabilities:
  * 1. 120Hz+ Display Refresh Rate Forcing
  * 2. Uninterrupted Background Audio (Screen-Off) via ForegroundService & Wake/Wi-Fi locks
- * 3. 500MB Dedicated Internal WebView Cache
- * 4. iOS Safari User-Agent Spoofing for native Apple Music mobile interface
- * 5. Edge-to-Edge display with dynamic status and navigation bar styling
+ * 3. 500MB Dedicated Internal WebView & OkHttp Disk Cache (shouldInterceptRequest)
+ * 4. Apple CDN (mzstatic.com) Artwork Downscaler (1000x1000bb -> 300x300bb.webp)
+ * 5. Telemetry & Tracker Blocker (metrics.apple.com, xp.apple.com, sentry)
+ * 6. CSS GPU Performance Injection (strips backdrop-filter blurs, hides app banners, enables translateZ(0) & content-visibility)
+ * 7. Zero-Reload SPA Navigation (window.history.back(), RenderPriority.HIGH, configChanges)
  */
 class MainActivity : AppCompatActivity() {
 
@@ -242,6 +257,14 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "MusicBetaWrapper"
         private const val APPLE_MUSIC_BETA_URL = "https://beta.music.apple.com"
         private const val NOTIFICATION_PERMISSION_CODE = 1001
+        private const val DISK_CACHE_MAX_BYTES = 500L * 1024L * 1024L // 500 MB
+
+        // Preferences for Light/Dark Mode
+        private const val PREFS_NAME = "music_wrapper_prefs"
+        private const val KEY_THEME_MODE = "pref_theme_mode"
+        const val THEME_SYSTEM = "system"
+        const val THEME_LIGHT = "light"
+        const val THEME_DARK = "dark"
 
         // iOS Safari 17.5 User-Agent (iPhone Mobile)
         const val IOS_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
@@ -253,6 +276,25 @@ class MainActivity : AppCompatActivity() {
         const val COMMAND_PAUSE = "command_pause"
         const val COMMAND_NEXT = "command_next"
         const val COMMAND_PREV = "command_prev"
+
+        // Optimization 3: Blocked Telemetry & Analytics Domains/Substrings
+        private val BLOCKED_TELEMETRY_PATTERNS = listOf(
+            "metrics.apple.com",
+            "xp.apple.com",
+            "dzc-metrics.mzstatic.com",
+            "notes-analytics-events.apple.com",
+            "pancake.apple.com",
+            "books-analytics-events.apple.com",
+            "sentry.io",
+            "browser.sentry-cdn.com",
+            "/sentry/"
+        )
+
+        // Optimization 2: Regex matching oversized mzstatic.com artwork (e.g. /1000x1000bb.jpg or /600x600bb.png)
+        private val MZSTATIC_ARTWORK_REGEX = Regex(
+            """/(\\d{3,4})x(\\d{3,4})([a-z]{0,4})\\.(jpg|jpeg|png|webp)(\\?.*)?$""",
+            RegexOption.IGNORE_CASE
+        )
     }
 
     private lateinit var rootContainer: View
@@ -260,9 +302,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var errorLayout: FrameLayout
     private lateinit var insetsController: WindowInsetsControllerCompat
+    private lateinit var sharedPreferences: SharedPreferences
+    private lateinit var okHttpClient: OkHttpClient
 
     private var currentRefreshRate: Float = 60.0f
     private var isPlayingAudio: Boolean = false
+    private var currentThemeMode: String = THEME_SYSTEM
     private var lastTopInsetDp: Int = 0
     private var lastBottomInsetDp: Int = 0
     private var lastLeftInsetDp: Int = 0
@@ -283,12 +328,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        currentThemeMode = sharedPreferences.getString(KEY_THEME_MODE, THEME_SYSTEM) ?: THEME_SYSTEM
+
+        // Apply saved theme before view inflation
+        applyAppCompatNightMode(currentThemeMode)
+
         super.onCreate(savedInstanceState)
 
         // 1. Force High Refresh Rate (120 Hz+)
         enforceMaxDisplayRefreshRate()
 
-        // 2. Setup True Edge-to-Edge display
+        // 2. Setup True Edge-to-Edge display with dynamic status & nav bar tinting
         setupEdgeToEdge()
 
         setContentView(R.layout.activity_main)
@@ -304,7 +355,7 @@ class MainActivity : AppCompatActivity() {
         // Request POST_NOTIFICATIONS on Android 13+ (API 33+) for foreground media notification
         checkNotificationPermission()
 
-        // 3. Configure WebView for Maximum Performance & 500MB Cache
+        // 3. Configure WebView for Maximum Performance, 500MB Cache & Light/Dark styling
         configureHighPerformanceWebView()
 
         // 4. Setup Back-press handling to navigate WebView history
@@ -327,11 +378,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Requirement 1: Performance & 120 Hz.
-     * Detects display's maximum supported refresh rate (e.g. 120Hz, 144Hz, 165Hz)
-     * and forces window.attributes.preferredDisplayModeId and preferredRefreshRate.
-     */
     private fun enforceMaxDisplayRefreshRate() {
         try {
             val displayObj: Display? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -343,7 +389,6 @@ class MainActivity : AppCompatActivity() {
 
             if (displayObj != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 val modes = displayObj.supportedModes
-                // Sort by highest refresh rate, breaking ties with highest resolution
                 val bestMode = modes.maxWithOrNull(
                     compareBy<Display.Mode> { it.refreshRate }
                         .thenBy { it.physicalWidth * it.physicalHeight }
@@ -363,9 +408,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Requirement 4: True Edge-to-Edge display and Dynamic Status/Navigation Bar Styling.
-     */
     private fun setupEdgeToEdge() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         supportActionBar?.hide()
@@ -373,10 +415,13 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+
         insetsController = WindowInsetsControllerCompat(window, window.decorView)
-        // Default to dark content styling (Apple Music mobile defaults to dark UI)
-        insetsController.isAppearanceLightStatusBars = false
-        insetsController.isAppearanceLightNavigationBars = false
+        updateSystemBarsForCurrentTheme()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
@@ -384,19 +429,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Requirement: Mobile Status Bar & Camera Cutout Safe Area Handling.
-     * Prevents top headers and navigation elements from rendering under the physical clock,
-     * battery percentage, and camera punch-hole notch.
-     *
-     * Captures system window insets (systemBars + displayCutout), calculates DP metrics,
-     * and injects CSS custom properties (--safe-area-top, etc.) into the WebView DOM.
-     */
     private fun setupWindowInsetsHandling() {
-        ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { _, windowInsets ->
+        ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { view, windowInsets ->
             val insets = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
+
+            // Apply native hardware safe-area padding so WebView never overlaps status bar or notch
+            view.setPadding(insets.left, insets.top, insets.right, insets.bottom)
 
             val density = resources.displayMetrics.density
             lastTopInsetDp = (insets.top / density).toInt()
@@ -404,23 +444,17 @@ class MainActivity : AppCompatActivity() {
             lastLeftInsetDp = (insets.left / density).toInt()
             lastRightInsetDp = (insets.right / density).toInt()
 
-            // Reposition progress bar directly below the physical cutout / status bar
             val progressParams = progressBar.layoutParams as? FrameLayout.LayoutParams
                 ?: (progressBar.layoutParams as? androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams)
-            progressParams?.topMargin = insets.top
+            progressParams?.topMargin = 0
             progressBar.layoutParams = progressParams
 
-            // Inject CSS Safe Area variables into current page
             injectSafeAreaInsetsScript()
 
-            windowInsets
+            WindowInsetsCompat.CONSUMED
         }
     }
 
-    /**
-     * Injects CSS variables onto document.documentElement so mobile web headers
-     * respect safe area boundaries without being drawn behind status bar or notch.
-     */
     private fun injectSafeAreaInsetsScript() {
         val cssScript = """
             (function() {
@@ -434,20 +468,45 @@ class MainActivity : AppCompatActivity() {
         executeJavaScript(cssScript)
     }
 
-    /**
-     * Requirement 1, 3 & 4:
-     * - Configure WebView for max speed: JS, DOM storage, database caching, multi-threading.
-     * - Hardware layer acceleration.
-     * - Dedicated 500 MB custom internal disk cache directory.
-     * - iOS Safari User-Agent override.
-     */
+    private fun updateSystemBarsForCurrentTheme() {
+        val isDarkMode = isEffectiveDarkMode()
+        insetsController.isAppearanceLightStatusBars = !isDarkMode
+        insetsController.isAppearanceLightNavigationBars = !isDarkMode
+    }
+
+    private fun isEffectiveDarkMode(): Boolean {
+        return when (currentThemeMode) {
+            THEME_LIGHT -> false
+            THEME_DARK -> true
+            else -> {
+                val currentNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+                currentNightMode == Configuration.UI_MODE_NIGHT_YES
+            }
+        }
+    }
+
+    fun setThemeMode(mode: String) {
+        currentThemeMode = mode
+        sharedPreferences.edit().putString(KEY_THEME_MODE, mode).apply()
+        applyAppCompatNightMode(mode)
+        updateSystemBarsForCurrentTheme()
+        applyWebViewTheme(mode)
+    }
+
+    private fun applyAppCompatNightMode(mode: String) {
+        val nightMode = when (mode) {
+            THEME_LIGHT -> AppCompatDelegate.MODE_NIGHT_NO
+            THEME_DARK -> AppCompatDelegate.MODE_NIGHT_YES
+            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
+        AppCompatDelegate.setDefaultNightMode(nightMode)
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureHighPerformanceWebView() {
-        // Enforce Hardware Layer Acceleration on the WebView
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         webView.isVerticalScrollBarEnabled = false
         webView.isHorizontalScrollBarEnabled = false
-        webView.setBackgroundColor(Color.parseColor("#000000"))
 
         val settings = webView.settings
 
@@ -456,15 +515,44 @@ class MainActivity : AppCompatActivity() {
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
 
-        // 2. 500 MB Custom Disk Cache Allocation
+        // 2. 500 MB Dedicated OkHttp Disk Cache & WebView Cache Allocation
         val customCacheDir = File(applicationContext.cacheDir, "music_beta_webview_cache")
         if (!customCacheDir.exists()) {
             customCacheDir.mkdirs()
         }
-        settings.cacheMode = WebSettings.LOAD_DEFAULT
-        manageCacheQuota(customCacheDir, 500L * 1024L * 1024L)
 
-        // 3. Performance & Speed Optimizations
+        val okHttpCacheDir = File(applicationContext.cacheDir, "music_beta_okhttp_cache")
+        if (!okHttpCacheDir.exists()) {
+            okHttpCacheDir.mkdirs()
+        }
+
+        okHttpClient = OkHttpClient.Builder()
+            .cache(Cache(okHttpCacheDir, DISK_CACHE_MAX_BYTES))
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .addNetworkInterceptor { chain ->
+                val response = chain.proceed(chain.request())
+                response.newBuilder()
+                    .removeHeader("Pragma")
+                    .removeHeader("Vary")
+                    .header("Cache-Control", "public, max-age=604800, immutable")
+                    .build()
+            }
+            .build()
+
+        // Optimization 5: LOAD_DEFAULT with offline fallback to LOAD_CACHE_ELSE_NETWORK
+        settings.cacheMode = if (isNetworkAvailable()) {
+            WebSettings.LOAD_DEFAULT
+        } else {
+            WebSettings.LOAD_CACHE_ELSE_NETWORK
+        }
+        manageCacheQuota(customCacheDir, DISK_CACHE_MAX_BYTES)
+
+        // 3. Optimization 5: High Render Priority & Pre-Rasterization
+        @Suppress("DEPRECATION")
+        settings.setRenderPriority(WebSettings.RenderPriority.HIGH)
         settings.offscreenPreRaster = true
         settings.mediaPlaybackRequiresUserGesture = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
@@ -476,11 +564,57 @@ class MainActivity : AppCompatActivity() {
         // 4. iOS Safari User-Agent Override
         settings.userAgentString = IOS_USER_AGENT
 
-        // 5. JavaScript Interface for Media Session & Background Sync
+        // 5. Light/Dark Mode configuration on WebView
+        applyWebViewTheme(currentThemeMode)
+
+        // 6. JavaScript Interface for Media Session & Background Sync
         webView.addJavascriptInterface(MusicBridge(), "AndroidBridge")
 
-        // 6. WebViewClient and WebChromeClient
+        // 7. Custom WebViewClient with shouldInterceptRequest & GPU CSS Injection
         setupWebViewClients()
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val network = cm.activeNetwork ?: return false
+        val capabilities = cm.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun applyWebViewTheme(mode: String) {
+        val isDark = isEffectiveDarkMode()
+        val bgColor = if (isDark) Color.parseColor("#000000") else Color.parseColor("#FFFFFF")
+        rootContainer.setBackgroundColor(bgColor)
+        webView.setBackgroundColor(bgColor)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, isDark)
+            }
+        }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+            val forceDarkValue = when (mode) {
+                THEME_LIGHT -> WebSettingsCompat.FORCE_DARK_OFF
+                THEME_DARK -> WebSettingsCompat.FORCE_DARK_ON
+                else -> WebSettingsCompat.FORCE_DARK_AUTO
+            }
+            WebSettingsCompat.setForceDark(webView.settings, forceDarkValue)
+        }
+
+        val themeScript = """
+            (function() {
+                const scheme = '\${if (isDark) "dark" else "light"}';
+                document.documentElement.style.colorScheme = scheme;
+                let meta = document.querySelector('meta[name="color-scheme"]');
+                if (!meta) {
+                    meta = document.createElement('meta');
+                    meta.name = 'color-scheme';
+                    document.head.appendChild(meta);
+                }
+                meta.content = scheme;
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(themeScript, null)
     }
 
     private fun setupWebViewClients() {
@@ -491,11 +625,49 @@ class MainActivity : AppCompatActivity() {
                 errorLayout.visibility = View.GONE
             }
 
+            override fun onPageCommitVisible(view: WebView?, url: String?) {
+                super.onPageCommitVisible(view, url)
+                injectSafeAreaInsetsScript()
+                injectGpuPerformanceCss()
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
+                applyWebViewTheme(currentThemeMode)
                 injectSafeAreaInsetsScript()
+                injectGpuPerformanceCss()
                 injectAudioBridgeScript()
+            }
+
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val req = request ?: return null
+                val rawUrl = req.url?.toString() ?: return null
+
+                // Optimization 3: Block background tracking/metrics calls immediately
+                if (isTelemetryOrTrackerUrl(rawUrl)) {
+                    return createEmptyBlockedResponse()
+                }
+
+                // Only intercept GET requests for static asset caching & artwork optimization
+                if (!req.method.equals("GET", ignoreCase = true)) {
+                    return super.shouldInterceptRequest(view, request)
+                }
+
+                // Optimization 2: Rewrite oversized mzstatic.com album art to 300x300bb.webp
+                val targetUrl = rewriteAppleArtworkUrl(rawUrl)
+
+                // Optimization 1: Cache static assets (.js, .css, .woff2, and mzstatic.com artwork) to disk
+                if (isCacheableStaticAsset(targetUrl)) {
+                    fetchFromOkHttpDiskCache(targetUrl, req)?.let { cachedResponse ->
+                        return cachedResponse
+                    }
+                }
+
+                return super.shouldInterceptRequest(view, request)
             }
 
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
@@ -507,11 +679,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url?.toString() ?: return false
-                return if (url.contains("music.apple.com")) {
-                    false
-                } else {
-                    false
-                }
+                return if (url.contains("music.apple.com")) false else false
             }
         }
 
@@ -528,6 +696,141 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
         }
+    }
+
+    private fun isTelemetryOrTrackerUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return BLOCKED_TELEMETRY_PATTERNS.any { lower.contains(it) }
+    }
+
+    private fun createEmptyBlockedResponse(): WebResourceResponse {
+        return WebResourceResponse(
+            "text/plain",
+            "UTF-8",
+            204,
+            "No Content",
+            mapOf(
+                "Access-Control-Allow-Origin" to "*",
+                "Cache-Control" to "max-age=86400"
+            ),
+            ByteArrayInputStream(ByteArray(0))
+        )
+    }
+
+    private fun rewriteAppleArtworkUrl(url: String): String {
+        if (!url.contains("mzstatic.com", ignoreCase = true)) return url
+        val match = MZSTATIC_ARTWORK_REGEX.find(url) ?: return url
+        val width = match.groupValues[1].toIntOrNull() ?: return url
+        val height = match.groupValues[2].toIntOrNull() ?: return url
+        val ext = match.groupValues[4].lowercase()
+        val query = match.groupValues[5]
+
+        if (width > 300 || height > 300 || ext != "webp") {
+            return url.replace(MZSTATIC_ARTWORK_REGEX, "/300x300bb.webp$query")
+        }
+        return url
+    }
+
+    private fun isCacheableStaticAsset(url: String): Boolean {
+        val cleanPath = url.substringBefore('?').lowercase()
+        if (cleanPath.contains("mzstatic.com") &&
+            (cleanPath.endsWith(".webp") || cleanPath.endsWith(".jpg") || cleanPath.endsWith(".jpeg") || cleanPath.endsWith(".png"))
+        ) {
+            return true
+        }
+        return cleanPath.endsWith(".js") ||
+            cleanPath.endsWith(".mjs") ||
+            cleanPath.endsWith(".css") ||
+            cleanPath.endsWith(".woff2") ||
+            cleanPath.endsWith(".woff") ||
+            cleanPath.endsWith(".ttf") ||
+            cleanPath.endsWith(".svg")
+    }
+
+    private fun fetchFromOkHttpDiskCache(targetUrl: String, webRequest: WebResourceRequest): WebResourceResponse? {
+        return try {
+            val requestBuilder = Request.Builder()
+                .url(targetUrl)
+                .header("User-Agent", IOS_USER_AGENT)
+
+            webRequest.requestHeaders["Accept"]?.let { requestBuilder.header("Accept", it) }
+            webRequest.requestHeaders["Referer"]?.let { requestBuilder.header("Referer", it) }
+
+            if (!isNetworkAvailable()) {
+                requestBuilder.cacheControl(CacheControl.FORCE_CACHE)
+            }
+
+            val response = okHttpClient.newCall(requestBuilder.build()).execute()
+            if (!response.isSuccessful) {
+                response.close()
+                return null
+            }
+
+            val body = response.body ?: return null
+            val contentTypeHeader = response.header("Content-Type", guessMimeType(targetUrl)) ?: "application/octet-stream"
+            val mimeType = contentTypeHeader.substringBefore(';').trim()
+            val encoding = if (contentTypeHeader.contains("charset=", ignoreCase = true)) {
+                contentTypeHeader.substringAfter("charset=", "UTF-8").substringBefore(';').trim()
+            } else {
+                "UTF-8"
+            }
+
+            val responseHeaders = mutableMapOf(
+                "Access-Control-Allow-Origin" to "*",
+                "Access-Control-Allow-Methods" to "GET, HEAD, OPTIONS",
+                "Cache-Control" to "public, max-age=604800, immutable"
+            )
+
+            WebResourceResponse(
+                mimeType,
+                encoding,
+                response.code,
+                response.message.ifEmpty { "OK" },
+                responseHeaders,
+                body.byteStream()
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "OkHttp cache miss/fallback for $targetUrl: \${e.message}")
+            null
+        }
+    }
+
+    private fun guessMimeType(url: String): String {
+        val clean = url.substringBefore('?').lowercase()
+        return when {
+            clean.endsWith(".js") || clean.endsWith(".mjs") -> "application/javascript"
+            clean.endsWith(".css") -> "text/css"
+            clean.endsWith(".woff2") -> "font/woff2"
+            clean.endsWith(".woff") -> "font/woff"
+            clean.endsWith(".ttf") -> "font/ttf"
+            clean.endsWith(".webp") -> "image/webp"
+            clean.endsWith(".png") -> "image/png"
+            clean.endsWith(".jpg") || clean.endsWith(".jpeg") -> "image/jpeg"
+            clean.endsWith(".svg") -> "image/svg+xml"
+            else -> "application/octet-stream"
+        }
+    }
+
+    private fun injectGpuPerformanceCss() {
+        val gpuCssScript = """
+            (function() {
+                if (document.getElementById('__music_beta_gpu_perf_css')) return;
+                const style = document.createElement('style');
+                style.id = '__music_beta_gpu_perf_css';
+                style.textContent = [
+                    '/* 1. Strip expensive GPU Gaussian backdrop-filter blurs */',
+                    '*, *::before, *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }',
+                    '.chrome-player, .web-navigation, .header-bar, [class*="backdrop"], [class*="blur"] { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background-color: rgba(18, 18, 22, 0.96) !important; }',
+                    '/* 2. Hide "Open in Music App" upsell banners & promotional clutter */',
+                    '.upsell-banner, [data-testid="upsell-banner"], [class*="upsell"], [class*="open-in-app"], [class*="smart-banner"], .native-upsell, a[href*="itunes.apple.com"], button[aria-label*="Open in Music"] { display: none !important; height: 0 !important; max-height: 0 !important; visibility: hidden !important; pointer-events: none !important; overflow: hidden !important; }',
+                    '/* 3. Enable GPU hardware-accelerated scrolling & content-visibility */',
+                    'main, .scrollable-page, [class*="shelf"], [class*="grid"] { transform: translateZ(0); -webkit-overflow-scrolling: touch; will-change: transform; }',
+                    '.shelf-grid__item, .songs-list-row, [data-testid="track-lockup"], [class*="lockup"] { content-visibility: auto; contain-intrinsic-size: 1px 240px; }'
+                ].join('\\n');
+                (document.head || document.documentElement).appendChild(style);
+            })();
+        """.trimIndent()
+        executeJavaScript(gpuCssScript)
     }
 
     private fun injectAudioBridgeScript() {
@@ -670,11 +973,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Requirement 2: Screen-Off & Background Playback.
-     * CRITICAL: Do NOT pause or destroy the WebView audio pipeline in onPause() or onStop().
-     * This allows audio streaming to continue uninterrupted when user switches apps or turns off the screen.
-     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        enforceMaxDisplayRefreshRate()
+        updateSystemBarsForCurrentTheme()
+        applyWebViewTheme(currentThemeMode)
+        injectSafeAreaInsetsScript()
+    }
+
     override fun onPause() {
         super.onPause()
         Log.d(TAG, "onPause called: Keeping audio pipeline alive for background playback")
@@ -702,10 +1008,24 @@ class MainActivity : AppCompatActivity() {
     private fun setupBackNavigation() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (webView.canGoBack()) {
-                    webView.goBack()
-                } else {
-                    moveTaskToBack(true)
+                webView.evaluateJavascript(
+                    """
+                    (function() {
+                        if (window.history && window.history.length > 1) {
+                            window.history.back();
+                            return 'SPA_BACK_HANDLED';
+                        }
+                        return 'AT_ROOT';
+                    })();
+                    """.trimIndent()
+                ) { result ->
+                    if (result?.contains("SPA_BACK_HANDLED") != true) {
+                        if (webView.canGoBack()) {
+                            webView.goBack()
+                        } else {
+                            moveTaskToBack(true)
+                        }
+                    }
                 }
             }
         })

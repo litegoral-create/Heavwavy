@@ -139,12 +139,12 @@ High-performance native Android wrapper around \`https://beta.music.apple.com\`.
   };
 
   return (
-    <div className={`min-h-screen flex flex-col font-sans antialiased selection:bg-rose-500 selection:text-white transition-colors duration-200 ${
+    <div className={`min-h-screen flex flex-col font-sans antialiased selection:bg-rose-500 selection:text-white transition-colors duration-200 pb-safe ${
       globalTheme === 'dark' ? 'bg-[#0a0a0c] text-white' : 'bg-[#f8f9fa] text-neutral-900'
     }`}>
-      {/* Top Header */}
-      <header className={`border-b backdrop-blur-md sticky top-0 z-50 transition-colors ${
-        globalTheme === 'dark' ? 'border-white/10 bg-[#0f0f13]/80' : 'border-neutral-200 bg-white/90'
+      {/* Top Header (Respects mobile status bar & notch safe area insets) */}
+      <header className={`border-b backdrop-blur-md sticky top-0 z-50 transition-colors pt-safe pl-safe pr-safe ${
+        globalTheme === 'dark' ? 'border-white/10 bg-[#0f0f13]/85' : 'border-neutral-200 bg-white/95'
       }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">

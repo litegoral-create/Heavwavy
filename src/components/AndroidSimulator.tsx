@@ -1298,8 +1298,57 @@ export const AndroidSimulator: React.FC = () => {
             </div>
             <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
               <span className="text-neutral-500 block text-[10px] uppercase font-mono">System Insets</span>
-              <span className="text-white font-semibold font-mono text-xs block mt-0.5">
-                WindowInsetsCompat
+              <span className="text-white font-semibold font-mono text-xs block mt-0.5 truncate" title="rootContainer.setPadding(left, top, right, bottom)">
+                rootContainer.setPadding
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 5 WebView Anti-Lag & Speed Optimizations */}
+        <div className="p-4 rounded-2xl bg-neutral-900/80 border border-rose-500/30 shadow-md bg-gradient-to-br from-rose-950/20 to-neutral-900">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                <Flame className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                  <span>5 WebView Anti-Lag &amp; Speed Optimizations</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 font-bold">
+                    ENABLED
+                  </span>
+                </h3>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Eliminates scroll jank, slow reloads &amp; main-thread bitmap decoding on <code className="text-rose-400">beta.music.apple.com</code>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-rose-400 block text-[10px] uppercase font-mono font-bold">1. OkHttp Disk Cache</span>
+              <span className="text-white font-semibold text-[11px] block mt-0.5">
+                Intercepts <code className="text-emerald-400">.js, .css, .woff2, mzstatic</code> → 7-day immutable disk cache
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-rose-400 block text-[10px] uppercase font-mono font-bold">2. CDN Artwork Downscaler</span>
+              <span className="text-white font-semibold text-[11px] block mt-0.5">
+                Rewrites <code className="text-amber-400">1000x1000bb.jpg</code> → <code className="text-emerald-400">300x300bb.webp</code>
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-rose-400 block text-[10px] uppercase font-mono font-bold">3. Telemetry Blocker</span>
+              <span className="text-white font-semibold text-[11px] block mt-0.5">
+                Blocks <code className="text-rose-300">metrics.apple.com, xp.apple.com, sentry</code> (204 empty)
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-neutral-950/70 border border-neutral-800">
+              <span className="text-rose-400 block text-[10px] uppercase font-mono font-bold">4 &amp; 5. GPU CSS + SPA Back</span>
+              <span className="text-white font-semibold text-[11px] block mt-0.5">
+                Strips <code className="text-purple-300">backdrop-filter</code> blurs + routes Back via <code className="text-emerald-400">history.back()</code>
               </span>
             </div>
           </div>

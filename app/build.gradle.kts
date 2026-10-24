@@ -1,7 +1,6 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("kotlin-parcelize")
 }
 
 android {
@@ -29,7 +28,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("debug") // fallback if release keystore not configured
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -55,27 +54,26 @@ android {
 }
 
 dependencies {
+    // Core AndroidX & UI
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.activity:activity-ktx:1.9.0")
     implementation("androidx.coordinatorlayout:coordinatorlayout:1.2.0")
 
+    // High-Performance WebView & OkHttp Disk Cache Interceptor
     implementation("androidx.webkit:webkit:1.11.0")
-    implementation("androidx.media:media:1.7.0")
-
-    implementation("androidx.media3:media3-common:1.4.1")
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
-    implementation("androidx.media3:media3-session:1.4.1")
-    implementation("androidx.media3:media3-ui:1.4.1")
-
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // MediaSession & Foreground Media Notification (Android 14+ compliant)
+    implementation("androidx.media:media:1.7.0")
+
+    // Coroutines & Lifecycle
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
 
+    // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")

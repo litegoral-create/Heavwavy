@@ -228,3 +228,141 @@ export function detectNotchCollision(params: {
   return params.headerTopDp < params.notchHeightDp;
 }
 
+/**
+ * Optimization 3: Telemetry & Tracker Blocker patterns.
+ * Matches background Apple Music telemetry, experiment tracking, and Sentry crash reporting endpoints.
+ */
+export const BLOCKED_TELEMETRY_PATTERNS = [
+  'metrics.apple.com',
+  'xp.apple.com',
+  'dzc-metrics.mzstatic.com',
+  'notes-analytics-events.apple.com',
+  'pancake.apple.com',
+  'books-analytics-events.apple.com',
+  'sentry.io',
+  'browser.sentry-cdn.com',
+  '/sentry/',
+];
+
+export function isTelemetryOrTrackerUrl(url: string): boolean {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  return BLOCKED_TELEMETRY_PATTERNS.some((pattern) => lower.includes(pattern));
+}
+
+/**
+ * Optimization 2: Apple CDN Artwork Downscaler & WebP Rewriter.
+ * Rewrites oversized mzstatic.com thumbnails (e.g., 1000x1000bb.jpg, 600x600bb.png, 1200x1200cc.jpg)
+ * down to 300x300bb.webp to eliminate main-thread bitmap decoding stutter and cut bandwidth by ~88%.
+ */
+export function rewriteAppleArtworkUrl(
+  url: string,
+  targetSpec: string = '300x300bb.webp'
+): {
+  rewrittenUrl: string;
+  wasRewritten: boolean;
+  originalSpec: string | null;
+} {
+  if (!url || !url.toLowerCase().includes('mzstatic.com')) {
+    return { rewrittenUrl: url, wasRewritten: false, originalSpec: null };
+  }
+
+  // Matches trailing dimension pattern like /1000x1000bb.jpg, /600x600bb.webp, /1400x1400sr.png
+  const artworkRegex = /\/(\d{3,4})x(\d{3,4})([a-z]{0,4})\.(jpg|jpeg|png|webp)(\?.*)?$/i;
+  const match = url.match(artworkRegex);
+  if (!match) {
+    return { rewrittenUrl: url, wasRewritten: false, originalSpec: null };
+  }
+
+  const width = parseInt(match[1], 10);
+  const height = parseInt(match[2], 10);
+  const mode = match[3] || 'bb';
+  const ext = match[4];
+  const query = match[5] || '';
+  const originalSpec = `${width}x${height}${mode}.${ext}`;
+
+  // Rewrite if dimensions exceed 300px or if format is not already webp at <=300px
+  if (width > 300 || height > 300 || ext.toLowerCase() !== 'webp') {
+    const rewrittenUrl = url.replace(artworkRegex, `/${targetSpec}${query}`);
+    return {
+      rewrittenUrl,
+      wasRewritten: rewrittenUrl !== url,
+      originalSpec,
+    };
+  }
+
+  return { rewrittenUrl: url, wasRewritten: false, originalSpec };
+}
+
+/**
+ * Optimization 1: Aggressive Disk Caching (shouldInterceptRequest).
+ * Determines whether a request URL represents an immutable/static asset (.js, .css, .woff2, or mzstatic artwork)
+ * that should be intercepted and cached via OkHttpClient to context.cacheDir.
+ */
+export function isCacheableStaticAsset(url: string): boolean {
+  if (!url || isTelemetryOrTrackerUrl(url)) return false;
+  const lower = url.toLowerCase().split('?')[0];
+  if (lower.includes('mzstatic.com') && /\.(jpg|jpeg|png|webp|svg|woff2|woff|ttf|js|css)$/.test(lower)) {
+    return true;
+  }
+  return /\.(js|mjs|css|woff2|woff|ttf|otf|webp|png|jpg|jpeg|svg|ico)$/.test(lower);
+}
+
+/**
+ * Optimization 4: CSS GPU Performance Injection.
+ * Strips heavy real-time backdrop-filter blurs, hides "Open in Music App" promotional banners,
+ * and promotes scrollable shelves & track lockups to GPU-accelerated layers with content-visibility: auto.
+ */
+export function generateGpuPerformanceCss(): string {
+  return `
+    /* 1. Strip expensive GPU Gaussian backdrop-filter blurs that cause scroll frame drops */
+    *, *::before, *::after {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+    .chrome-player, .web-navigation, .header-bar, [class*="backdrop"], [class*="blur"] {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      background-color: rgba(18, 18, 22, 0.96) !important;
+    }
+
+    /* 2. Hide "Open in Music App" upsell banners & web promotional clutter */
+    .upsell-banner, [data-testid="upsell-banner"], [class*="upsell"],
+    [class*="open-in-app"], [class*="smart-banner"], .native-upsell,
+    a[href*="itunes.apple.com"], button[aria-label*="Open in Music"] {
+      display: none !important;
+      height: 0 !important;
+      max-height: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+      overflow: hidden !important;
+    }
+
+    /* 3. Enable hardware-accelerated scrolling & offscreen layout skipping */
+    main, .scrollable-page, [class*="shelf"], [class*="grid"] {
+      transform: translateZ(0);
+      -webkit-overflow-scrolling: touch;
+      will-change: transform;
+    }
+    .shelf-grid__item, .songs-list-row, [data-testid="track-lockup"], [class*="lockup"] {
+      content-visibility: auto;
+      contain-intrinsic-size: 1px 240px;
+    }
+  `.trim();
+}
+
+/**
+ * Optimization 5: Zero-Reload SPA Back Navigation Script.
+ * Routes Android hardware/gesture Back press through window.history.back() inside the SPA
+ * so MusicKit JS transitions views in-memory without a full WebView page reload.
+ */
+export function generateSpaBackNavigationScript(): string {
+  return `(function() {
+    if (window.history && window.history.length > 1) {
+      window.history.back();
+      return 'SPA_BACK_HANDLED';
+    }
+    return 'AT_ROOT';
+  })();`;
+}
+

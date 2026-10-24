@@ -188,16 +188,50 @@ export const ArchitectureGuide: React.FC = () => {
           </div>
 
           <div className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-1.5">
-            <h4 className="font-bold text-indigo-400">2. Native Inset Listener</h4>
+            <h4 className="font-bold text-indigo-400">2. Native Root Padding + Cutout</h4>
             <p className="text-[11px] text-neutral-400 leading-relaxed">
-              <code>ViewCompat.setOnApplyWindowInsetsListener</code> queries <code>systemBars()</code> and <code>displayCutout()</code>, dynamically calculating DP offsets based on display density.
+              <code>ViewCompat.setOnApplyWindowInsetsListener</code> queries <code>systemBars() or displayCutout()</code> and applies <code>rootContainer.setPadding(left, top, right, bottom)</code> so the WebView never renders under the camera notch.
             </p>
           </div>
 
           <div className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-1.5">
             <h4 className="font-bold text-indigo-400">3. Runtime CSS Variable Bridge</h4>
             <p className="text-[11px] text-neutral-400 leading-relaxed">
-              Injects <code>--safe-area-top</code> and <code>--safe-area-bottom</code> into <code>document.documentElement.style</code> on every window inset change and page finish, preventing header clipping.
+              Injects <code>--safe-area-top</code> and <code>--safe-area-bottom</code> into <code>document.documentElement.style</code> on every window inset change and page commit, preventing sticky header clipping.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Pillar 8: 5 WebView Anti-Lag & Speed Optimizations */}
+      <div className="p-5 rounded-2xl bg-gradient-to-br from-rose-950/30 to-neutral-900 border border-rose-500/30 space-y-4">
+        <div className="flex items-center space-x-2 text-rose-400 font-bold text-sm">
+          <Zap className="w-4 h-4" />
+          <span>8. Five WebView Anti-Lag &amp; Asset Reload Optimizations</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-1">
+            <h4 className="font-bold text-rose-400">1. Aggressive OkHttp Disk Caching</h4>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              Intercepts <code>.js</code>, <code>.css</code>, <code>.woff2</code>, and <code>mzstatic.com</code> artwork in <code>shouldInterceptRequest</code> using a 500MB <code>OkHttpClient</code> disk cache with 7-day immutable headers.
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-1">
+            <h4 className="font-bold text-rose-400">2. Apple CDN Artwork Downscaler</h4>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              Rewrites oversized <code>mzstatic.com</code> thumbnails (<code>1000x1000bb.jpg</code>, <code>600x600bb.png</code>) down to <code>300x300bb.webp</code>, cutting bitmap decode lag by ~90%.
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-1">
+            <h4 className="font-bold text-rose-400">3. Telemetry &amp; Tracker Blocker</h4>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              Short-circuits background calls to <code>metrics.apple.com</code>, <code>xp.apple.com</code>, and <code>sentry</code> with an instant <code>204 No Content</code> response.
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-neutral-950/70 border border-neutral-800 space-y-1">
+            <h4 className="font-bold text-rose-400">4 &amp; 5. GPU CSS Injection &amp; Zero-Reload SPA Back</h4>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              Injects CSS on <code>onPageCommitVisible</code> stripping expensive <code>backdrop-filter</code> blurs, hiding &ldquo;Open in Music App&rdquo; banners, enabling <code>content-visibility: auto</code>, and routing Android Back via <code>window.history.back()</code>.
             </p>
           </div>
         </div>
