@@ -11,9 +11,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -82,12 +82,9 @@ class MediaPlaybackService : Service() {
 
     private val playbackTicker = object : Runnable {
         override fun run() {
-            if (player != null) {
-                val position = player?.currentPosition ?: 0L
-                val duration = player?.duration ?: 0L
-                if (isPlaying || player?.isPlaying == true) {
-                    dispatchPlaybackState(position, duration)
-                }
+            val exoPlayer = player
+            if (exoPlayer != null && (isPlaying || exoPlayer.isPlaying)) {
+                dispatchPlaybackState(exoPlayer.currentPosition, exoPlayer.duration)
             }
             playbackHandler.postDelayed(this, 1000L)
         }
@@ -117,6 +114,7 @@ class MediaPlaybackService : Service() {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
                         Player.STATE_READY -> {
+                            isPlaying = true
                             updatePlaybackState(true)
                             dispatchPlaybackState(currentPosition, duration)
                             updateNotification()
@@ -215,9 +213,8 @@ class MediaPlaybackService : Service() {
                     handleStopCommand()
                 }
             })
-
-            isActive = true
         }
+        mediaSession.isActive = true
     }
 
     private fun updatePlaybackState(playing: Boolean) {
@@ -252,111 +249,81 @@ class MediaPlaybackService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action ?: return START_STICKY
-        val title = intent.getStringExtra(EXTRA_TITLE) ?: currentTitle
-        val artist = intent.getStringExtra(EXTRA_ARTIST) ?: currentArtist
-        val artworkUrl = intent.getStringExtra(EXTRA_ARTWORK_URL) ?: currentArtworkUrl
-        val streamUrl = intent.getStringExtra(EXTRA_STREAM_URL)
+        val action = intent?.action ?: ACTION_START_PLAYBACK
+        val title = intent?.getStringExtra(EXTRA_TITLE) ?: currentTitle
+        val artist = intent?.getStringExtra(EXTRA_ARTIST) ?: currentArtist
+        val artworkUrl = intent?.getStringExtra(EXTRA_ARTWORK_URL) ?: currentArtworkUrl
+        val streamUrl = intent?.getStringExtra(EXTRA_STREAM_URL)
 
         if (title.isNotEmpty()) currentTitle = title
         if (artist.isNotEmpty()) currentArtist = artist
-        if (artworkUrl.isNotEmpty()) currentArtworkUrl = artworkUrl
 
         when (action) {
-            ACTION_PLAY_STREAM -> {
-                if (!streamUrl.isNullOrEmpty()) {
-                    playNativeStream(streamUrl)
+            ACTION_START_PLAYBACK, ACTION_PLAY_STREAM, ACTION_NOTIFICATION_PLAY -> {
+                if (!streamUrl.isNullOrBlank()) {
+                    playStream(streamUrl, currentTitle, currentArtist)
                 }
-                startForegroundWithNotification()
-            }
-
-            ACTION_START_PLAYBACK, ACTION_NOTIFICATION_PLAY -> {
                 isPlaying = true
                 acquireLocks()
                 updatePlaybackState(true)
                 loadArtworkAndRefresh(artworkUrl)
                 startForegroundWithNotification()
-                if (action == ACTION_NOTIFICATION_PLAY) {
-                    dispatchToActivity(MainActivity.COMMAND_PLAY)
-                }
+                dispatchToActivity(MainActivity.COMMAND_PLAY)
             }
 
-            ACTION_PAUSE_PLAYBACK, ACTION_NOTIFICATION_PAUSE -> {
-                pausePlayback()
-                if (action == ACTION_NOTIFICATION_PAUSE) {
-                    dispatchToActivity(MainActivity.COMMAND_PAUSE)
+            ACTION_PAUSE_PLAYBACK, ACTION_RESUME_PLAYBACK, ACTION_NOTIFICATION_PAUSE -> {
+                isPlaying = action != ACTION_PAUSE_PLAYBACK && action != ACTION_NOTIFICATION_PAUSE
+                if (isPlaying) {
+                    player?.play()
+                    acquireLocks()
+                } else {
+                    player?.pause()
+                    releaseLocks()
                 }
-            }
-
-            ACTION_RESUME_PLAYBACK -> {
-                resumePlayback()
+                updatePlaybackState(isPlaying)
+                updateNotification()
+                dispatchToActivity(if (isPlaying) MainActivity.COMMAND_PLAY else MainActivity.COMMAND_PAUSE)
             }
 
             ACTION_STOP_PLAYBACK -> {
-                stopPlayback()
+                isPlaying = false
+                player?.stop()
+                releaseLocks()
+                updatePlaybackState(false)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
             }
 
             ACTION_UPDATE_METADATA -> {
                 loadArtworkAndRefresh(artworkUrl)
             }
 
-            ACTION_NOTIFICATION_NEXT -> {
-                handleNextCommand()
-            }
-
-            ACTION_NOTIFICATION_PREV -> {
-                handlePreviousCommand()
+            ACTION_NOTIFICATION_NEXT -> handleNextCommand()
+            ACTION_NOTIFICATION_PREV -> handlePreviousCommand()
+            else -> {
+                // no-op
             }
         }
 
         return START_STICKY
     }
 
-    private fun playNativeStream(streamUrl: String) {
-        val uri = streamUrl.trim()
-        if (uri.isEmpty()) return
+    private fun playStream(streamUrl: String, title: String, artist: String) {
+        if (streamUrl.isBlank()) return
 
+        val uri = Uri.parse(streamUrl)
         val mediaItem = MediaItem.fromUri(uri)
-        player?.setMediaItem(mediaItem)
-        player?.prepare()
-        player?.play()
+        val exoPlayer = player ?: return
 
+        exoPlayer.setMediaItem(mediaItem)
+        exoPlayer.prepare()
+        exoPlayer.play()
         isPlaying = true
-        acquireLocks()
+        currentTitle = title
+        currentArtist = artist
+        updateMediaMetadata()
         updatePlaybackState(true)
-        loadArtworkAndRefresh(currentArtworkUrl)
-        dispatchPlaybackState(player?.currentPosition ?: 0L, player?.duration ?: 0L)
         updateNotification()
-        startForegroundWithNotification()
-    }
-
-    private fun pausePlayback() {
-        isPlaying = false
-        player?.pause()
-        releaseLocks()
-        updatePlaybackState(false)
-        dispatchPlaybackState(player?.currentPosition ?: 0L, player?.duration ?: 0L)
-        refreshNotification()
-    }
-
-    private fun resumePlayback() {
-        isPlaying = true
-        player?.play()
-        acquireLocks()
-        updatePlaybackState(true)
-        dispatchPlaybackState(player?.currentPosition ?: 0L, player?.duration ?: 0L)
-        refreshNotification()
-    }
-
-    private fun stopPlayback() {
-        isPlaying = false
-        player?.stop()
-        player?.clearMediaItems()
-        releaseLocks()
-        updatePlaybackState(false)
-        dispatchPlaybackState(0L, 0L)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
     }
 
     private fun handlePlayCommand() {
@@ -364,9 +331,8 @@ class MediaPlaybackService : Service() {
         player?.play()
         acquireLocks()
         updatePlaybackState(true)
-        dispatchPlaybackState(player?.currentPosition ?: 0L, player?.duration ?: 0L)
-        refreshNotification()
         dispatchToActivity(MainActivity.COMMAND_PLAY)
+        updateNotification()
     }
 
     private fun handlePauseCommand() {
@@ -374,9 +340,8 @@ class MediaPlaybackService : Service() {
         player?.pause()
         releaseLocks()
         updatePlaybackState(false)
-        dispatchPlaybackState(player?.currentPosition ?: 0L, player?.duration ?: 0L)
-        refreshNotification()
         dispatchToActivity(MainActivity.COMMAND_PAUSE)
+        updateNotification()
     }
 
     private fun handleNextCommand() {
@@ -388,7 +353,12 @@ class MediaPlaybackService : Service() {
     }
 
     private fun handleStopCommand() {
-        stopPlayback()
+        isPlaying = false
+        player?.stop()
+        releaseLocks()
+        updatePlaybackState(false)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun dispatchToActivity(command: String) {
@@ -400,13 +370,10 @@ class MediaPlaybackService : Service() {
     }
 
     private fun dispatchPlaybackState(positionMs: Long, durationMs: Long) {
-        val intent = Intent(MainActivity.ACTION_PLAYBACK_STATE).apply {
-            putExtra(MainActivity.EXTRA_PLAYING, isPlaying)
-            putExtra(MainActivity.EXTRA_TITLE, currentTitle)
-            putExtra(MainActivity.EXTRA_ARTIST, currentArtist)
-            putExtra(MainActivity.EXTRA_ARTWORK, currentArtworkUrl)
-            putExtra(MainActivity.EXTRA_POSITION_MS, positionMs)
-            putExtra(MainActivity.EXTRA_DURATION_MS, durationMs)
+        val intent = Intent(MainActivity.ACTION_MEDIA_COMMAND).apply {
+            putExtra("extra_playback_position_ms", positionMs)
+            putExtra("extra_playback_duration_ms", durationMs)
+            putExtra("extra_playback_state", isPlaying)
             setPackage(packageName)
         }
         sendBroadcast(intent)
@@ -419,11 +386,11 @@ class MediaPlaybackService : Service() {
                 val bitmap = downloadBitmap(url)
                 currentArtworkBitmap = bitmap
                 updateMediaMetadata()
-                refreshNotification()
+                updateNotification()
             }
         } else {
             updateMediaMetadata()
-            refreshNotification()
+            updateNotification()
         }
     }
 
@@ -450,13 +417,9 @@ class MediaPlaybackService : Service() {
         }
     }
 
-    private fun refreshNotification() {
+    private fun updateNotification() {
         val notification = buildMediaNotification()
         notificationManager.notify(NOTIFICATION_ID, notification)
-    }
-
-    private fun updateNotification() {
-        refreshNotification()
     }
 
     private fun buildMediaNotification(): Notification {
@@ -511,7 +474,7 @@ class MediaPlaybackService : Service() {
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(currentTitle)
             .setContentText(currentArtist)
-            .setSubText("Apple Music")
+            .setSubText("Apple Music Beta")
             .setContentIntent(contentPendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(isPlaying)
@@ -521,10 +484,7 @@ class MediaPlaybackService : Service() {
             .addAction(playPauseIcon, playPauseText, playPausePendingIntent)
             .addAction(android.R.drawable.ic_media_next, "Next", nextPendingIntent)
 
-        currentArtworkBitmap?.let {
-            builder.setLargeIcon(it)
-        }
-
+        currentArtworkBitmap?.let { builder.setLargeIcon(it) }
         return builder.build()
     }
 
@@ -535,7 +495,7 @@ class MediaPlaybackService : Service() {
                 "Music Playback Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Ongoing media playback and audio controls"
+                description = "Ongoing media playback and audio controls for MusicBetaWrapper"
                 setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
@@ -546,12 +506,12 @@ class MediaPlaybackService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         serviceJob.cancel()
-        playbackHandler.removeCallbacks(playbackTicker)
+        playbackHandler.removeCallbacksAndMessages(null)
         releaseLocks()
         player?.release()
         mediaSession.isActive = false
         mediaSession.release()
-        Log.i(TAG, "MediaPlaybackService destroyed, ExoPlayer released")
+        Log.i(TAG, "MediaPlaybackService destroyed, locks released")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
