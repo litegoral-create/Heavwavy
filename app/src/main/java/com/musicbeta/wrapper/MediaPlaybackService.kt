@@ -21,6 +21,12 @@ import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,15 +34,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URL
 
-/**
- * Ongoing Foreground Service for MusicBetaWrapper.
- *
- * Fulfills:
- * - Ongoing ForegroundService with MediaSessionCompat media notification
- * - PowerManager.PARTIAL_WAKE_LOCK & WifiManager Wi-Fi Lock during playback
- * - Handles Media Key events (Play, Pause, Next, Prev) via MediaSession callbacks
- * - Android 14+ (API 34) Foreground Service Type: mediaPlayback
- */
 class MediaPlaybackService : Service() {
 
     companion object {
@@ -47,14 +44,16 @@ class MediaPlaybackService : Service() {
 
         const val ACTION_START_PLAYBACK = "com.musicbeta.wrapper.ACTION_START_PLAYBACK"
         const val ACTION_PAUSE_PLAYBACK = "com.musicbeta.wrapper.ACTION_PAUSE_PLAYBACK"
+        const val ACTION_RESUME_PLAYBACK = "com.musicbeta.wrapper.ACTION_RESUME_PLAYBACK"
         const val ACTION_STOP_PLAYBACK = "com.musicbeta.wrapper.ACTION_STOP_PLAYBACK"
         const val ACTION_UPDATE_METADATA = "com.musicbeta.wrapper.ACTION_UPDATE_METADATA"
+        const val ACTION_PLAY_STREAM = "com.musicbeta.wrapper.ACTION_PLAY_STREAM"
 
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_ARTIST = "extra_artist"
         const val EXTRA_ARTWORK_URL = "extra_artwork_url"
+        const val EXTRA_STREAM_URL = "extra_stream_url"
 
-        // Notification Action Intents
         const val ACTION_NOTIFICATION_PLAY = "com.musicbeta.wrapper.NOTIFICATION_PLAY"
         const val ACTION_NOTIFICATION_PAUSE = "com.musicbeta.wrapper.NOTIFICATION_PAUSE"
         const val ACTION_NOTIFICATION_NEXT = "com.musicbeta.wrapper.NOTIFICATION_NEXT"
@@ -64,9 +63,9 @@ class MediaPlaybackService : Service() {
     private lateinit var mediaSession: MediaSessionCompat
     private lateinit var notificationManager: NotificationManager
 
-    // Power & Wi-Fi Locks for uninterrupted screen-off audio streaming
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var player: ExoPlayer? = null
 
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
@@ -81,14 +80,49 @@ class MediaPlaybackService : Service() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
+        initPlayer()
         initMediaSession()
         initLocks()
-        Log.i(TAG, "MediaPlaybackService initialized with MediaSession & Locks")
+        Log.i(TAG, "MediaPlaybackService initialized with native ExoPlayer audio engine")
     }
 
-    /**
-     * Requirement 2: Acquire WakeLock & Wi-Fi Lock so audio streams uninterrupted when screen turns off.
-     */
+    private fun initPlayer() {
+        val audioAttributes = AudioAttributes.Builder()
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .setUsage(C.USAGE_MEDIA)
+            .build()
+
+        player = ExoPlayer.Builder(this).build().apply {
+            setAudioAttributes(audioAttributes, true)
+            setHandleAudioBecomingNoisy(true)
+            addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    when (playbackState) {
+                        Player.STATE_READY -> {
+                            isPlaying = isPlaying
+                            updatePlaybackState(true)
+                            updateNotification()
+                        }
+                        Player.STATE_ENDED -> {
+                            isPlaying = false
+                            updatePlaybackState(false)
+                            updateNotification()
+                        }
+                        Player.STATE_IDLE -> Unit
+                        else -> Unit
+                    }
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.e(TAG, "ExoPlayer error", error)
+                    isPlaying = false
+                    updatePlaybackState(false)
+                    updateNotification()
+                }
+            })
+        }
+    }
+
     @SuppressLint("WakelockTimeout")
     private fun initLocks() {
         try {
@@ -118,16 +152,10 @@ class MediaPlaybackService : Service() {
     private fun acquireLocks() {
         try {
             wakeLock?.let {
-                if (!it.isHeld) {
-                    it.acquire()
-                    Log.d(TAG, "PARTIAL_WAKE_LOCK acquired")
-                }
+                if (!it.isHeld) it.acquire()
             }
             wifiLock?.let {
-                if (!it.isHeld) {
-                    it.acquire()
-                    Log.d(TAG, "WIFI_LOCK acquired")
-                }
+                if (!it.isHeld) it.acquire()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error acquiring locks", e)
@@ -137,30 +165,21 @@ class MediaPlaybackService : Service() {
     private fun releaseLocks() {
         try {
             wakeLock?.let {
-                if (it.isHeld) {
-                    it.release()
-                    Log.d(TAG, "PARTIAL_WAKE_LOCK released")
-                }
+                if (it.isHeld) it.release()
             }
             wifiLock?.let {
-                if (it.isHeld) {
-                    it.release()
-                    Log.d(TAG, "WIFI_LOCK released")
-                }
+                if (it.isHeld) it.release()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing locks", e)
         }
     }
 
-    /**
-     * Initializes MediaSessionCompat and registers Media Key callbacks.
-     */
     private fun initMediaSession() {
         mediaSession = MediaSessionCompat(this, MEDIA_SESSION_TAG).apply {
             setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
-                MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
+                    MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
             )
 
             setCallback(object : MediaSessionCompat.Callback() {
@@ -192,11 +211,11 @@ class MediaPlaybackService : Service() {
     private fun updatePlaybackState(playing: Boolean) {
         val state = if (playing) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
         val actions = PlaybackStateCompat.ACTION_PLAY or
-                PlaybackStateCompat.ACTION_PAUSE or
-                PlaybackStateCompat.ACTION_PLAY_PAUSE or
-                PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-                PlaybackStateCompat.ACTION_STOP
+            PlaybackStateCompat.ACTION_PAUSE or
+            PlaybackStateCompat.ACTION_PLAY_PAUSE or
+            PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+            PlaybackStateCompat.ACTION_STOP
 
         mediaSession.setPlaybackState(
             PlaybackStateCompat.Builder()
@@ -222,15 +241,23 @@ class MediaPlaybackService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: return START_STICKY
-
         val title = intent.getStringExtra(EXTRA_TITLE) ?: currentTitle
         val artist = intent.getStringExtra(EXTRA_ARTIST) ?: currentArtist
         val artworkUrl = intent.getStringExtra(EXTRA_ARTWORK_URL) ?: currentArtworkUrl
+        val streamUrl = intent.getStringExtra(EXTRA_STREAM_URL)
 
         if (title.isNotEmpty()) currentTitle = title
         if (artist.isNotEmpty()) currentArtist = artist
+        if (artworkUrl.isNotEmpty()) currentArtworkUrl = artworkUrl
 
         when (action) {
+            ACTION_PLAY_STREAM -> {
+                if (!streamUrl.isNullOrEmpty()) {
+                    playNativeStream(streamUrl)
+                }
+                startForegroundWithNotification()
+            }
+
             ACTION_START_PLAYBACK, ACTION_NOTIFICATION_PLAY -> {
                 isPlaying = true
                 acquireLocks()
@@ -243,21 +270,18 @@ class MediaPlaybackService : Service() {
             }
 
             ACTION_PAUSE_PLAYBACK, ACTION_NOTIFICATION_PAUSE -> {
-                isPlaying = false
-                releaseLocks()
-                updatePlaybackState(false)
-                refreshNotification()
+                pausePlayback()
                 if (action == ACTION_NOTIFICATION_PAUSE) {
                     dispatchToActivity(MainActivity.COMMAND_PAUSE)
                 }
             }
 
+            ACTION_RESUME_PLAYBACK -> {
+                resumePlayback()
+            }
+
             ACTION_STOP_PLAYBACK -> {
-                isPlaying = false
-                releaseLocks()
-                updatePlaybackState(false)
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                stopPlayback()
             }
 
             ACTION_UPDATE_METADATA -> {
@@ -276,8 +300,52 @@ class MediaPlaybackService : Service() {
         return START_STICKY
     }
 
+    private fun playNativeStream(streamUrl: String) {
+        val uri = streamUrl.trim()
+        if (uri.isEmpty()) return
+
+        val mediaItem = MediaItem.fromUri(uri)
+        player?.setMediaItem(mediaItem)
+        player?.prepare()
+        player?.play()
+
+        isPlaying = true
+        acquireLocks()
+        updatePlaybackState(true)
+        loadArtworkAndRefresh(currentArtworkUrl)
+        updateNotification()
+        startForegroundWithNotification()
+    }
+
+    private fun pausePlayback() {
+        isPlaying = false
+        player?.pause()
+        releaseLocks()
+        updatePlaybackState(false)
+        refreshNotification()
+    }
+
+    private fun resumePlayback() {
+        isPlaying = true
+        player?.play()
+        acquireLocks()
+        updatePlaybackState(true)
+        refreshNotification()
+    }
+
+    private fun stopPlayback() {
+        isPlaying = false
+        player?.stop()
+        player?.clearMediaItems()
+        releaseLocks()
+        updatePlaybackState(false)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     private fun handlePlayCommand() {
         isPlaying = true
+        player?.play()
         acquireLocks()
         updatePlaybackState(true)
         refreshNotification()
@@ -286,6 +354,7 @@ class MediaPlaybackService : Service() {
 
     private fun handlePauseCommand() {
         isPlaying = false
+        player?.pause()
         releaseLocks()
         updatePlaybackState(false)
         refreshNotification()
@@ -301,11 +370,7 @@ class MediaPlaybackService : Service() {
     }
 
     private fun handleStopCommand() {
-        isPlaying = false
-        releaseLocks()
-        updatePlaybackState(false)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        stopPlayback()
     }
 
     private fun dispatchToActivity(command: String) {
@@ -340,9 +405,6 @@ class MediaPlaybackService : Service() {
         }
     }
 
-    /**
-     * Requirement 2 & Android 14+ (API 34) ForegroundServiceType specification.
-     */
     private fun startForegroundWithNotification() {
         val notification = buildMediaNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -362,9 +424,10 @@ class MediaPlaybackService : Service() {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    /**
-     * Creates a high-fidelity NotificationCompat.MediaStyle media notification.
-     */
+    private fun updateNotification() {
+        refreshNotification()
+    }
+
     private fun buildMediaNotification(): Notification {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -376,7 +439,6 @@ class MediaPlaybackService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Previous Action
         val prevIntent = Intent(this, MediaPlaybackService::class.java).apply {
             action = ACTION_NOTIFICATION_PREV
         }
@@ -387,7 +449,6 @@ class MediaPlaybackService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Play/Pause Action
         val playPauseIntent = Intent(this, MediaPlaybackService::class.java).apply {
             action = if (isPlaying) ACTION_NOTIFICATION_PAUSE else ACTION_NOTIFICATION_PLAY
         }
@@ -398,7 +459,6 @@ class MediaPlaybackService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Next Action
         val nextIntent = Intent(this, MediaPlaybackService::class.java).apply {
             action = ACTION_NOTIFICATION_NEXT
         }
@@ -420,7 +480,7 @@ class MediaPlaybackService : Service() {
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(currentTitle)
             .setContentText(currentArtist)
-            .setSubText("Apple Music Beta")
+            .setSubText("Apple Music")
             .setContentIntent(contentPendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(isPlaying)
@@ -444,7 +504,7 @@ class MediaPlaybackService : Service() {
                 "Music Playback Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Ongoing media playback and audio controls for MusicBetaWrapper"
+                description = "Ongoing media playback and audio controls"
                 setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
@@ -456,9 +516,10 @@ class MediaPlaybackService : Service() {
         super.onDestroy()
         serviceJob.cancel()
         releaseLocks()
+        player?.release()
         mediaSession.isActive = false
         mediaSession.release()
-        Log.i(TAG, "MediaPlaybackService destroyed, locks released")
+        Log.i(TAG, "MediaPlaybackService destroyed, ExoPlayer released")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
